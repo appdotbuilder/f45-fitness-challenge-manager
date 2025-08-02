@@ -1,10 +1,24 @@
 
+import { db } from '../db';
+import { auditLogsTable } from '../db/schema';
 import { type AuditLog } from '../schema';
+import { desc } from 'drizzle-orm';
 
-export const getAuditLogs = async (limit?: number, offset?: number): Promise<AuditLog[]> => {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is fetching audit logs from the database.
-    // Only administrators should have access to audit logs.
-    // Should support pagination, filtering, and search functionality.
-    return [];
+export const getAuditLogs = async (limit: number = 50, offset: number = 0): Promise<AuditLog[]> => {
+  try {
+    // Build query with pagination and ordering (most recent first)
+    let query = db.select()
+      .from(auditLogsTable)
+      .orderBy(desc(auditLogsTable.created_at))
+      .limit(limit)
+      .offset(offset);
+
+    const results = await query.execute();
+
+    // Return results (no numeric conversions needed for audit logs)
+    return results;
+  } catch (error) {
+    console.error('Get audit logs failed:', error);
+    throw error;
+  }
 };

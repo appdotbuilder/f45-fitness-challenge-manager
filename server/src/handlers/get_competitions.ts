@@ -1,11 +1,40 @@
 
+import { db } from '../db';
+import { competitionsTable } from '../db/schema';
 import { type Competition } from '../schema';
+import { eq, or } from 'drizzle-orm';
 
 export const getCompetitions = async (userId?: number, role?: string): Promise<Competition[]> => {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is fetching competitions based on user role and permissions.
-    // Members see active competitions they can participate in.
-    // Staff see competitions assigned to them or that they created.
-    // Administrators see all competitions.
-    return [];
+  try {
+    let results;
+
+    if (role === 'member') {
+      // Members see only active competitions
+      results = await db.select()
+        .from(competitionsTable)
+        .where(eq(competitionsTable.status, 'active'))
+        .execute();
+    } else if (role === 'staff' && userId) {
+      // Staff see competitions they created or are assigned to
+      results = await db.select()
+        .from(competitionsTable)
+        .where(
+          or(
+            eq(competitionsTable.created_by, userId),
+            eq(competitionsTable.assigned_to, userId)
+          )!
+        )
+        .execute();
+    } else {
+      // Administrators see all competitions, or fallback for other cases
+      results = await db.select()
+        .from(competitionsTable)
+        .execute();
+    }
+
+    return results;
+  } catch (error) {
+    console.error('Failed to get competitions:', error);
+    throw error;
+  }
 };
