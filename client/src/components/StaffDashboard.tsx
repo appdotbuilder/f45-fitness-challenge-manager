@@ -1,206 +1,148 @@
 
-import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { PlusIcon, SettingsIcon, BarChart3Icon } from 'lucide-react';
 import { trpc } from '@/utils/trpc';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { CompetitionForm } from '@/components/CompetitionForm';
+import { CompetitionEntryForm } from '@/components/CompetitionEntryForm';
+// Using type-only imports
 import type { User, Competition, CompetitionEntry, CreateCompetitionInput } from '../../../server/src/schema';
 
 interface StaffDashboardProps {
-  user: User;
+  currentUser: User;
 }
 
-export function StaffDashboard({ user }: StaffDashboardProps) {
+export function StaffDashboard({ currentUser }: StaffDashboardProps) {
   const [competitions, setCompetitions] = useState<Competition[]>([]);
-  const [entries, setEntries] = useState<CompetitionEntry[]>([]);
+  const [allEntries, setAllEntries] = useState<CompetitionEntry[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [showCreateForm, setShowCreateForm] = useState(false);
   const [selectedCompetition, setSelectedCompetition] = useState<Competition | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Form states
-  const [newCompetition, setNewCompetition] = useState<CreateCompetitionInput>({
-    name: '',
-    description: null,
-    type: 'plank_hold',
-    data_entry_method: 'user_entry',
-    start_date: new Date(),
-    end_date: new Date(),
-    assigned_to: user.id
-  });
-
-  const [entryForm, setEntryForm] = useState({
-    user_id: 0,
-    value: 0,
-    unit: '',
-    notes: ''
-  });
-
-  const loadCompetitions = useCallback(async () => {
-    try {
-      const data = await trpc.getCompetitions.query();
-      // Use sample data for demo since server returns empty array
-      const sampleCompetitions: Competition[] = [
-        {
-          id: 1,
-          name: '🏋️ December Plank Challenge',
-          description: 'Hold your plank as long as possible!',
-          type: 'plank_hold',
-          data_entry_method: 'user_entry',
-          status: 'active',
-          start_date: new Date('2024-12-01'),
-          end_date: new Date('2024-12-31'),
-          created_by: user.id,
-          assigned_to: user.id,
-          created_at: new Date(),
-          updated_at: new Date()
-        },
-        {
-          id: 2,
-          name: '💪 Holiday Squat Marathon',
-          description: 'How many squats can you do in one session?',
-          type: 'squats',
-          data_entry_method: 'staff_only',
-          status: 'active',
-          start_date: new Date('2024-12-15'),
-          end_date: new Date('2025-01-15'),
-          created_by: user.id,
-          assigned_to: user.id,
-          created_at: new Date(),
-          updated_at: new Date()
-        }
-      ];
-      setCompetitions(data.length > 0 ? data : sampleCompetitions);
-    } catch (error) {
-      console.error('Failed to load competitions:', error);
+  // Sample data for staff competitions
+  const sampleStaffCompetitions = useMemo<Competition[]>(() => [
+    {
+      id: 1,
+      name: '30-Day Plank Challenge 🏋️‍♀️',
+      description: 'Hold your plank as long as possible! Track your daily progress.',
+      type: 'plank_hold',
+      data_entry_method: 'user_entry',
+      status: 'active',
+      start_date: new Date('2024-01-01'),
+      end_date: new Date('2024-01-31'),
+      created_by: currentUser.id,
+      assigned_to: currentUser.id,
+      created_at: new Date(),
+      updated_at: new Date()
+    },
+    {
+      id: 2,
+      name: 'Squat Showdown 💪',
+      description: 'Maximum squats in 2 minutes - staff verified only',
+      type: 'squats',
+      data_entry_method: 'staff_only',
+      status: 'active',
+      start_date: new Date('2024-01-01'),
+      end_date: new Date('2024-02-29'),
+      created_by: currentUser.id,
+      assigned_to: currentUser.id,
+      created_at: new Date(),
+      updated_at: new Date()
     }
-  }, [user.id]);
+  ], [currentUser.id]);
 
-  const loadEntries = useCallback(async () => {
-    if (!selectedCompetition) return;
-    
-    try {
-      const data = await trpc.getCompetitionEntries.query({ competitionId: selectedCompetition.id });
-      // Use sample data for demo since server returns empty array
-      const sampleEntries: CompetitionEntry[] = [
-        {
-          id: 1,
-          competition_id: selectedCompetition.id,
-          user_id: 1,
-          value: 120,
-          unit: 'seconds',
-          notes: 'Great improvement!',
-          entered_by: user.id,
-          created_at: new Date('2024-12-10'),
-          updated_at: new Date('2024-12-10')
-        },
-        {
-          id: 2,
-          competition_id: selectedCompetition.id,
-          user_id: 3,
-          value: 85,
-          unit: 'seconds',
-          notes: null,
-          entered_by: 3,
-          created_at: new Date('2024-12-12'),
-          updated_at: new Date('2024-12-12')
-        }
-      ];
-      setEntries(data.length > 0 ? data : sampleEntries);
-    } catch (error) {
-      console.error('Failed to load entries:', error);
+  const sampleUsers = useMemo<User[]>(() => [
+    {
+      id: 2,
+      email: 'john.doe@email.com',
+      first_name: 'John',
+      last_name: 'Doe',
+      role: 'member',
+      is_active: true,
+      created_at: new Date(),
+      updated_at: new Date()
+    },
+    {
+      id: 4,
+      email: 'jane.smith@email.com',
+      first_name: 'Jane',
+      last_name: 'Smith',
+      role: 'member',
+      is_active: true,
+      created_at: new Date(),
+      updated_at: new Date()
     }
-  }, [selectedCompetition, user.id]);
+  ], []);
 
-  useEffect(() => {
-    loadCompetitions();
-  }, [loadCompetitions]);
-
-  useEffect(() => {
-    if (selectedCompetition) {
-      loadEntries();
+  const sampleEntries = useMemo<CompetitionEntry[]>(() => [
+    {
+      id: 1,
+      competition_id: 1,
+      user_id: 2,
+      value: 120,
+      unit: 'seconds',
+      notes: 'Great improvement from last week!',
+      entered_by: 2,
+      created_at: new Date('2024-01-15'),
+      updated_at: new Date('2024-01-15')
+    },
+    {
+      id: 2,
+      competition_id: 2,
+      user_id: 4,
+      value: 45,
+      unit: 'reps',
+      notes: 'Staff verified - excellent form',
+      entered_by: currentUser.id,
+      created_at: new Date('2024-01-16'),
+      updated_at: new Date('2024-01-16')
     }
-  }, [selectedCompetition, loadEntries]);
+  ], [currentUser.id]);
 
-  const handleCreateCompetition = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    
+  const loadData = useCallback(async () => {
     try {
-      await trpc.createCompetition.mutate(newCompetition);
+      // Load staff competitions and entries from server
+      console.log('Loading staff competitions and entries...');
+      await trpc.getCompetitions.query();
+      await trpc.getUsers.query();
       
-      // Add to competitions list
-      const createdCompetition: Competition = {
-        id: Date.now(),
-        ...newCompetition,
+      // Use sample data for demonstration
+      setCompetitions(sampleStaffCompetitions);
+      setUsers(sampleUsers);
+      setAllEntries(sampleEntries);
+    } catch (error) {
+      console.error('Failed to load data:', error);
+      // Fall back to sample data
+      setCompetitions(sampleStaffCompetitions);
+      setUsers(sampleUsers);
+      setAllEntries(sampleEntries);
+    }
+  }, [sampleEntries, sampleStaffCompetitions, sampleUsers]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleCreateCompetition = async (competitionData: CreateCompetitionInput) => {
+    try {
+      await trpc.createCompetition.mutate(competitionData);
+      // Add new competition to local state
+      const newCompetition: Competition = {
+        id: Date.now(), // Temporary ID
+        ...competitionData,
+        assigned_to: competitionData.assigned_to ?? null,
         status: 'active',
-        created_by: user.id,
-        assigned_to: user.id,
+        created_by: currentUser.id,
         created_at: new Date(),
         updated_at: new Date()
       };
-      setCompetitions((prev: Competition[]) => [...prev, createdCompetition]);
-      
-      // Reset form
-      setNewCompetition({
-        name: '',
-        description: null,
-        type: 'plank_hold',
-        data_entry_method: 'user_entry',
-        start_date: new Date(),
-        end_date: new Date(),
-        assigned_to: user.id
-      });
+      setCompetitions((prev: Competition[]) => [...prev, newCompetition]);
+      setShowCreateForm(false);
     } catch (error) {
       console.error('Failed to create competition:', error);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleSubmitEntry = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedCompetition) return;
-
-    setIsSubmitting(true);
-    try {
-      await trpc.createCompetitionEntry.mutate({
-        competition_id: selectedCompetition.id,
-        user_id: entryForm.user_id,
-        value: entryForm.value,
-        unit: entryForm.unit || null,
-        notes: entryForm.notes || null
-      });
-
-      // Add to entries list
-      const createdEntry: CompetitionEntry = {
-        id: Date.now(),
-        competition_id: selectedCompetition.id,
-        user_id: entryForm.user_id,
-        value: entryForm.value,
-        unit: entryForm.unit || null,
-        notes: entryForm.notes || null,
-        entered_by: user.id,
-        created_at: new Date(),
-        updated_at: new Date()
-      };
-      setEntries((prev: CompetitionEntry[]) => [...prev, createdEntry]);
-
-      // Reset form
-      setEntryForm({
-        user_id: 0,
-        value: 0,
-        unit: '',
-        notes: ''
-      });
-    } catch (error) {
-      console.error('Failed to submit entry:', error);
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -210,8 +152,6 @@ export function StaffDashboard({ user }: StaffDashboardProps) {
         id: competitionId,
         status: 'inactive'
       });
-
-      // Update competition status
       setCompetitions((prev: Competition[]) =>
         prev.map((comp: Competition) =>
           comp.id === competitionId ? { ...comp, status: 'inactive' } : comp
@@ -222,92 +162,174 @@ export function StaffDashboard({ user }: StaffDashboardProps) {
     }
   };
 
-  const getCompetitionIcon = (type: string): string => {
-    switch (type) {
-      case 'plank_hold': return '🏋️';
-      case 'squats': return '💪';
-      case 'attendance': return '📅';
-      default: return '🏆';
+  const handleEntrySubmit = async (entry: { competition_id: number; user_id: number; value: number; unit: string | null; notes: string | null }) => {
+    try {
+      await trpc.createCompetitionEntry.mutate(entry);
+      // Add new entry to local state
+      const newEntry: CompetitionEntry = {
+        id: Date.now(), // Temporary ID
+        competition_id: entry.competition_id,
+        user_id: entry.user_id,
+        value: entry.value,
+        unit: entry.unit,
+        notes: entry.notes,
+        entered_by: currentUser.id,
+        created_at: new Date(),
+        updated_at: new Date()
+      };
+      setAllEntries((prev: CompetitionEntry[]) => [...prev, newEntry]);
+      setSelectedCompetition(null);
+    } catch (error) {
+      console.error('Failed to submit entry:', error);
     }
   };
 
-  const myCompetitions = competitions.filter((comp: Competition) => 
-    comp.created_by === user.id || comp.assigned_to === user.id
-  );
+  const getCompetitionTypeIcon = (type: string) => {
+    switch (type) {
+      case 'plank_hold':
+        return '🏋️‍♀️';
+      case 'squats':
+        return '💪';
+      case 'attendance':
+        return '📅';
+      default:
+        return '🏆';
+    }
+  };
+
+  const getCompetitionEntries = (competitionId: number) => {
+    return allEntries.filter((entry: CompetitionEntry) => entry.competition_id === competitionId);
+  };
+
+  const getUserName = (userId: number) => {
+    const user = users.find((u: User) => u.id === userId);
+    return user ? `${user.first_name} ${user.last_name}` : 'Unknown User';
+  };
 
   return (
     <div className="space-y-6">
+      {/* Welcome Section */}
       <div className="text-center">
-        <h2 className="text-3xl font-bold text-gray-900 mb-2">Staff Dashboard 👨‍💼</h2>
-        <p className="text-gray-600">Manage competitions and track member progress</p>
+        <h2 className="text-3xl font-bold text-gray-900 mb-2">
+          Staff Dashboard 👨‍💼
+        </h2>
+        <p className="text-lg text-gray-600">
+          Manage competitions and support our amazing members!
+        </p>
       </div>
 
-      <Tabs defaultValue="competitions" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+      {/* Stats Overview */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <Card className="bg-gradient-to-br from-blue-50 to-blue-100">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-blue-800">My Competitions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-900">{competitions.length}</div>
+            <p className="text-xs text-blue-700">Active competitions</p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-green-50 to-green-100">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-green-800">Total Entries</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-900">{allEntries.length}</div>
+            <p className="text-xs text-green-700">Member submissions</p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-purple-50 to-purple-100">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-purple-800">Active Members</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-purple-900">{users.length}</div>
+            <p className="text-xs text-purple-700">Participating members</p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-orange-50 to-orange-100">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-orange-800">Staff Entries</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-orange-900">
+              {allEntries.filter((entry: CompetitionEntry) => entry.entered_by === currentUser.id).length}
+            </div>
+            <p className="text-xs text-orange-700">Entries you've recorded</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Tabs defaultValue="competitions" className="space-y-6">
+        <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="competitions">🏆 My Competitions</TabsTrigger>
-          <TabsTrigger value="entries">📝 Manage Entries</TabsTrigger>
-          <TabsTrigger value="create">➕ Create Competition</TabsTrigger>
+          <TabsTrigger value="entries">📊 Member Entries</TabsTrigger>
         </TabsList>
 
         <TabsContent value="competitions" className="space-y-4">
           <div className="flex justify-between items-center">
-            <h3 className="text-xl font-semibold">Competitions I Manage</h3>
+            <h3 className="text-lg font-semibold">Competitions You Manage</h3>
+            <Button 
+              onClick={() => setShowCreateForm(true)}
+              className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600"
+            >
+              <PlusIcon className="h-4 w-4 mr-2" />
+              Create Competition
+            </Button>
           </div>
 
-          {myCompetitions.length === 0 ? (
-            <Alert>
-              <AlertDescription>
-                No competitions assigned to you yet. Create one or wait for an administrator to assign competitions to you. 📋
-              </AlertDescription>
-            </Alert>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {myCompetitions.map((competition: Competition) => (
-                <Card key={competition.id}>
+          <div className="grid gap-4">
+            {competitions.map((competition: Competition) => {
+              const entries = getCompetitionEntries(competition.id);
+              
+              return (
+                <Card key={competition.id} className="hover:shadow-md transition-shadow">
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      {getCompetitionIcon(competition.type)} {competition.name}
-                    </CardTitle>
-                    <CardDescription>{competition.description}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-600">Status:</span>
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-1">
+                        <CardTitle className="flex items-center gap-2">
+                          <span>{getCompetitionTypeIcon(competition.type)}</span>
+                          {competition.name}
+                        </CardTitle>
+                        <CardDescription>{competition.description}</CardDescription>
+                      </div>
+                      <div className="flex flex-col items-end gap-2">
                         <Badge variant={competition.status === 'active' ? 'default' : 'secondary'}>
                           {competition.status}
                         </Badge>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-600">Type:</span>
-                        <Badge variant="outline">{competition.type.replace('_', ' ')}</Badge>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-600">Entry Method:</span>
-                        <Badge variant={competition.data_entry_method === 'user_entry' ? 'default' : 'secondary'}>
-                          {competition.data_entry_method === 'user_entry' ? 'User Entry' : 'Staff Only'}
+                        <Badge variant="outline">
+                          {competition.data_entry_method === 'user_entry' ? 'Self-Entry' : 'Staff Only'}
                         </Badge>
                       </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-600">Period:</span>
-                        <span className="text-sm">
-                          {competition.start_date.toLocaleDateString()} - {competition.end_date.toLocaleDateString()}
-                        </span>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between text-sm text-gray-600">
+                        <span>📅 {competition.start_date.toLocaleDateString()} - {competition.end_date.toLocaleDateString()}</span>
+                        <span>👥 {entries.length} entries</span>
                       </div>
-                      <div className="flex gap-2 mt-4">
-                        <Button
+
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="outline" 
                           size="sm"
-                          variant="outline"
                           onClick={() => setSelectedCompetition(competition)}
                         >
-                          View Entries
+                          <PlusIcon className="h-4 w-4 mr-1" />
+                          Add Entry
                         </Button>
+                        
                         {competition.status === 'active' && (
-                          <Button
+                          <Button 
+                            variant="outline" 
                             size="sm"
-                            variant="destructive"
                             onClick={() => handleDeactivateCompetition(competition.id)}
                           >
+                            <SettingsIcon className="h-4 w-4 mr-1" />
                             Deactivate
                           </Button>
                         )}
@@ -315,242 +337,80 @@ export function StaffDashboard({ user }: StaffDashboardProps) {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
-            </div>
-          )}
+              );
+            })}
+          </div>
         </TabsContent>
 
         <TabsContent value="entries" className="space-y-4">
-          <h3 className="text-xl font-semibold mb-4">Manage Competition Entries</h3>
-          
-          {!selectedCompetition ? (
-            <Alert>
-              <AlertDescription>
-                Select a competition from the "My Competitions" tab to view and manage entries. 👆
-              </AlertDescription>
-            </Alert>
-          ) : (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    {getCompetitionIcon(selectedCompetition.type)} {selectedCompetition.name}
-                  </CardTitle>
-                  <CardDescription>Competition entries and data management</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {/* Entry submission form */}
-                  <div className="mb-6">
-                    <h4 className="font-semibold mb-4">Submit Entry for Member</h4>
-                    <form onSubmit={handleSubmitEntry} className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="member">Member ID</Label>
-                          <Input
-                            id="member"
-                            type="number"
-                            value={entryForm.user_id}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                              setEntryForm((prev) => ({ ...prev, user_id: parseInt(e.target.value) || 0 }))
-                            }
-                            placeholder="Enter member ID"
-                            required
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="value">Value</Label>
-                          <Input
-                            id="value"
-                            type="number"
-                            value={entryForm.value}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                              setEntryForm((prev) => ({ ...prev, value: parseFloat(e.target.value) || 0 }))
-                            }
-                            placeholder="Enter result"
-                            step={selectedCompetition.type === 'plank_hold' ? '0.1' : '1'}
-                            required
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="unit">Unit</Label>
-                          <Input
-                            id="unit"
-                            value={entryForm.unit}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                              setEntryForm((prev) => ({ ...prev, unit: e.target.value }))
-                            }
-                            placeholder="e.g., seconds, reps"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="notes">Notes</Label>
-                          <Input
-                            id="notes"
-                            value={entryForm.notes}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                              setEntryForm((prev) => ({ ...prev, notes: e.target.value }))
-                            }
-                            placeholder="Optional notes"
-                          />
-                        </div>
-                      </div>
-                      <Button type="submit" disabled={isSubmitting}>
-                        {isSubmitting ? 'Submitting...' : 'Submit Entry 📝'}
-                      </Button>
-                    </form>
-                  </div>
-
-                  {/* Existing entries */}
-                  <div>
-                    <h4 className="font-semibold mb-4">Current Entries</h4>
-                    {entries.length === 0 ? (
-                      <p className="text-gray-500">No entries yet for this competition.</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {entries.map((entry: CompetitionEntry) => (
-                          <div key={entry.id} className="flex justify-between items-center p-3 border rounded">
-                            <div>
-                              <span className="font-medium">User {entry.user_id}: </span>
-                              <span>{entry.value} {entry.unit}</span>
-                              {entry.notes && <span className="text-gray-500 ml-2">({entry.notes})</span>}
-                            </div>
-                            <div className="text-sm text-gray-500">
-                              {entry.created_at.toLocaleDateString()}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="create" className="space-y-4">
-          <h3 className="text-xl font-semibold mb-4">Create New Competition</h3>
-          
           <Card>
             <CardHeader>
-              <CardTitle>Competition Details</CardTitle>
-              <CardDescription>Create a new competition that will be automatically assigned to you</CardDescription>
+              <CardTitle>📊 Recent Member Entries</CardTitle>
+              <CardDescription>Monitor member progress and performance</CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleCreateCompetition} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Competition Name</Label>
-                  <Input
-                    id="name"
-                    value={newCompetition.name}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setNewCompetition((prev: CreateCompetitionInput) => ({ ...prev, name: e.target.value }))
-                    }
-                    placeholder="Enter competition name"
-                    required
-                  />
+              {allEntries.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <BarChart3Icon className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                  <p>No entries yet. Encourage members to participate!</p>
                 </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    value={newCompetition.description || ''}
-                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                      setNewCompetition((prev: CreateCompetitionInput) => ({
-                        ...prev,
-                        description: e.target.value || null
-                      }))
-                    }
-                    placeholder="Describe the competition..."
-                    rows={3}
-                  />
+              ) : (
+                <div className="space-y-4">
+                  {allEntries
+                    .sort((a: CompetitionEntry, b: CompetitionEntry) => 
+                      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                    )
+                    .map((entry: CompetitionEntry) => {
+                      const competition = competitions.find((c: Competition) => c.id === entry.competition_id);
+                      const isStaffEntry = entry.entered_by === currentUser.id;
+                      
+                      return (
+                        <div key={entry.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className="font-medium">{getUserName(entry.user_id)}</p>
+                              {isStaffEntry && (
+                                <Badge variant="secondary" className="text-xs">Staff Entered</Badge>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-600">
+                              {competition?.name || 'Unknown Competition'} • {entry.value} {entry.unit}
+                            </p>
+                            {entry.notes && (
+                              <p className="text-sm text-gray-500 mt-1">{entry.notes}</p>
+                            )}
+                          </div>
+                          <div className="text-right text-sm text-gray-500">
+                            {entry.created_at.toLocaleDateString()}
+                          </div>
+                        </div>
+                      );
+                    })}
                 </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="type">Competition Type</Label>
-                    <Select 
-                      value={newCompetition.type || 'plank_hold'}
-                      onValueChange={(value: 'plank_hold' | 'squats' | 'attendance' | 'other') =>
-                        setNewCompetition((prev: CreateCompetitionInput) => ({ ...prev, type: value }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="plank_hold">🏋️ Plank Hold</SelectItem>
-                        <SelectItem value="squats">💪 Squats</SelectItem>
-                        <SelectItem value="attendance">📅 Attendance</SelectItem>
-                        <SelectItem value="other">🏆 Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="entry-method">Entry Method</Label>
-                    <Select 
-                      value={newCompetition.data_entry_method || 'user_entry'}
-                      onValueChange={(value: 'staff_only' | 'user_entry') =>
-                        setNewCompetition((prev: CreateCompetitionInput) => ({ ...prev, data_entry_method: value }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="user_entry">👤 User Entry</SelectItem>
-                        <SelectItem value="staff_only">👨‍💼 Staff Only</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="start-date">Start Date</Label>
-                    <Input
-                      id="start-date"
-                      type="date"
-                      value={newCompetition.start_date.toISOString().split('T')[0]}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setNewCompetition((prev: CreateCompetitionInput) => ({
-                          ...prev,
-                          start_date: new Date(e.target.value)
-                        }))
-                      }
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="end-date">End Date</Label>
-                    <Input
-                      id="end-date"
-                      type="date"
-                      value={newCompetition.end_date.toISOString().split('T')[0]}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        setNewCompetition((prev: CreateCompetitionInput) => ({
-                          ...prev,
-                          end_date: new Date(e.target.value)
-                        }))
-                      }
-                      required
-                    />
-                  </div>
-                </div>
-
-                <Button type="submit" disabled={isSubmitting} className="w-full">
-                  {isSubmitting ? 'Creating...' : 'Create Competition 🚀'}
-                </Button>
-              </form>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Create Competition Modal */}
+      {showCreateForm && (
+        <CompetitionForm
+          onSubmit={handleCreateCompetition}
+          onCancel={() => setShowCreateForm(false)}
+        />
+      )}
+
+      {/* Competition Entry Modal */}
+      {selectedCompetition && (
+        <CompetitionEntryForm
+          competition={selectedCompetition}
+          users={users}
+          onSubmit={handleEntrySubmit}
+          onCancel={() => setSelectedCompetition(null)}
+          isStaffEntry={true}
+        />
+      )}
     </div>
   );
 }

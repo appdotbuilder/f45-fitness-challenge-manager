@@ -7,49 +7,57 @@ import { type CreateUserInput, type UpdateUserInput } from '../schema';
 import { updateUser } from '../handlers/update_user';
 import { eq } from 'drizzle-orm';
 
-// Helper function to create a test user
-const createTestUser = async (): Promise<number> => {
-  const testUserInput: CreateUserInput = {
-    email: 'test@example.com',
-    first_name: 'Test',
-    last_name: 'User',
-    role: 'member'
-  };
-
-  const result = await db.insert(usersTable)
-    .values(testUserInput)
-    .returning()
-    .execute();
-
-  return result[0].id;
+// Test user data
+const testUser: CreateUserInput = {
+  email: 'test@example.com',
+  first_name: 'John',
+  last_name: 'Doe',
+  role: 'member'
 };
 
 describe('updateUser', () => {
   beforeEach(createDB);
   afterEach(resetDB);
 
-  it('should update user email', async () => {
-    const userId = await createTestUser();
-    
+  it('should update user basic information', async () => {
+    // Create a user first
+    const createdUser = await db.insert(usersTable)
+      .values(testUser)
+      .returning()
+      .execute();
+
+    const userId = createdUser[0].id;
+
+    // Update user
     const updateInput: UpdateUserInput = {
       id: userId,
-      email: 'updated@example.com'
+      first_name: 'Jane',
+      last_name: 'Smith',
+      email: 'jane.smith@example.com'
     };
 
     const result = await updateUser(updateInput);
 
+    // Verify updated fields
     expect(result.id).toEqual(userId);
-    expect(result.email).toEqual('updated@example.com');
-    expect(result.first_name).toEqual('Test');
-    expect(result.last_name).toEqual('User');
-    expect(result.role).toEqual('member');
-    expect(result.is_active).toBe(true);
+    expect(result.first_name).toEqual('Jane');
+    expect(result.last_name).toEqual('Smith');
+    expect(result.email).toEqual('jane.smith@example.com');
+    expect(result.role).toEqual('member'); // Should remain unchanged
+    expect(result.is_active).toEqual(true); // Should remain unchanged
     expect(result.updated_at).toBeInstanceOf(Date);
   });
 
   it('should update user role', async () => {
-    const userId = await createTestUser();
-    
+    // Create a user first
+    const createdUser = await db.insert(usersTable)
+      .values(testUser)
+      .returning()
+      .execute();
+
+    const userId = createdUser[0].id;
+
+    // Update role
     const updateInput: UpdateUserInput = {
       id: userId,
       role: 'administrator'
@@ -57,90 +65,118 @@ describe('updateUser', () => {
 
     const result = await updateUser(updateInput);
 
-    expect(result.id).toEqual(userId);
-    expect(result.email).toEqual('test@example.com');
     expect(result.role).toEqual('administrator');
-    expect(result.updated_at).toBeInstanceOf(Date);
+    expect(result.first_name).toEqual('John'); // Should remain unchanged
+    expect(result.email).toEqual('test@example.com'); // Should remain unchanged
   });
 
-  it('should update multiple fields at once', async () => {
-    const userId = await createTestUser();
-    
+  it('should update user active status', async () => {
+    // Create a user first
+    const createdUser = await db.insert(usersTable)
+      .values(testUser)
+      .returning()
+      .execute();
+
+    const userId = createdUser[0].id;
+
+    // Deactivate user
     const updateInput: UpdateUserInput = {
       id: userId,
-      email: 'multi@example.com',
-      first_name: 'Updated',
-      last_name: 'Name',
-      role: 'staff',
       is_active: false
     };
 
     const result = await updateUser(updateInput);
 
-    expect(result.id).toEqual(userId);
-    expect(result.email).toEqual('multi@example.com');
-    expect(result.first_name).toEqual('Updated');
-    expect(result.last_name).toEqual('Name');
-    expect(result.role).toEqual('staff');
-    expect(result.is_active).toBe(false);
-    expect(result.updated_at).toBeInstanceOf(Date);
+    expect(result.is_active).toEqual(false);
+    expect(result.first_name).toEqual('John'); // Should remain unchanged
+    expect(result.role).toEqual('member'); // Should remain unchanged
   });
 
   it('should save changes to database', async () => {
-    const userId = await createTestUser();
-    
+    // Create a user first
+    const createdUser = await db.insert(usersTable)
+      .values(testUser)
+      .returning()
+      .execute();
+
+    const userId = createdUser[0].id;
+
+    // Update user
     const updateInput: UpdateUserInput = {
       id: userId,
-      email: 'saved@example.com',
+      first_name: 'Updated',
       role: 'staff'
     };
 
     await updateUser(updateInput);
 
-    // Verify changes are saved in database
-    const savedUsers = await db.select()
+    // Verify database was updated
+    const updatedUsers = await db.select()
       .from(usersTable)
       .where(eq(usersTable.id, userId))
       .execute();
 
-    expect(savedUsers).toHaveLength(1);
-    expect(savedUsers[0].email).toEqual('saved@example.com');
-    expect(savedUsers[0].role).toEqual('staff');
-    expect(savedUsers[0].updated_at).toBeInstanceOf(Date);
+    expect(updatedUsers).toHaveLength(1);
+    expect(updatedUsers[0].first_name).toEqual('Updated');
+    expect(updatedUsers[0].role).toEqual('staff');
+    expect(updatedUsers[0].last_name).toEqual('Doe'); // Should remain unchanged
   });
 
-  it('should throw error for non-existent user', async () => {
-    const updateInput: UpdateUserInput = {
-      id: 99999,
-      email: 'nonexistent@example.com'
-    };
-
-    await expect(updateUser(updateInput)).rejects.toThrow(/User with id 99999 not found/i);
-  });
-
-  it('should update only updated_at when no fields provided', async () => {
-    const userId = await createTestUser();
-    
-    // Get original user data
-    const originalUsers = await db.select()
-      .from(usersTable)
-      .where(eq(usersTable.id, userId))
+  it('should update timestamp', async () => {
+    // Create a user first
+    const createdUser = await db.insert(usersTable)
+      .values(testUser)
+      .returning()
       .execute();
-    const originalUser = originalUsers[0];
 
+    const userId = createdUser[0].id;
+    const originalUpdatedAt = createdUser[0].updated_at;
+
+    // Wait a moment to ensure timestamp difference
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // Update user
     const updateInput: UpdateUserInput = {
-      id: userId
+      id: userId,
+      first_name: 'Updated'
     };
 
     const result = await updateUser(updateInput);
 
-    expect(result.id).toEqual(userId);
-    expect(result.email).toEqual(originalUser.email);
-    expect(result.first_name).toEqual(originalUser.first_name);
-    expect(result.last_name).toEqual(originalUser.last_name);
-    expect(result.role).toEqual(originalUser.role);
-    expect(result.is_active).toEqual(originalUser.is_active);
     expect(result.updated_at).toBeInstanceOf(Date);
-    expect(result.updated_at > originalUser.updated_at).toBe(true);
+    expect(result.updated_at.getTime()).toBeGreaterThan(originalUpdatedAt.getTime());
+  });
+
+  it('should throw error for non-existent user', async () => {
+    const updateInput: UpdateUserInput = {
+      id: 999,
+      first_name: 'NonExistent'
+    };
+
+    await expect(updateUser(updateInput)).rejects.toThrow(/user not found/i);
+  });
+
+  it('should handle partial updates', async () => {
+    // Create a user first
+    const createdUser = await db.insert(usersTable)
+      .values(testUser)
+      .returning()
+      .execute();
+
+    const userId = createdUser[0].id;
+
+    // Update only email
+    const updateInput: UpdateUserInput = {
+      id: userId,
+      email: 'new.email@example.com'
+    };
+
+    const result = await updateUser(updateInput);
+
+    expect(result.email).toEqual('new.email@example.com');
+    expect(result.first_name).toEqual('John'); // Should remain unchanged
+    expect(result.last_name).toEqual('Doe'); // Should remain unchanged
+    expect(result.role).toEqual('member'); // Should remain unchanged
+    expect(result.is_active).toEqual(true); // Should remain unchanged
   });
 });

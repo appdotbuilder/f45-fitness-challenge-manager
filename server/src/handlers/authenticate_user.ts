@@ -13,34 +13,27 @@ export const authenticateUser = async (input: LoginInput): Promise<AuthContext |
       .execute();
 
     const user = users[0];
-
-    // Log failed login attempt for non-existent user
-    if (!user) {
-      // For security, we still log the attempt even though we don't have a user_id
-      // In a real system, this might be logged differently or use a system user ID
+    
+    // User not found or inactive
+    if (!user || !user.is_active) {
+      // Log failed login attempt if user exists but is inactive
+      if (user) {
+        await db.insert(auditLogsTable)
+          .values({
+            user_id: user.id,
+            action: 'login',
+            resource_type: 'user',
+            resource_id: user.id,
+            details: 'Failed login - account inactive',
+            ip_address: null
+          })
+          .execute();
+      }
       return null;
     }
 
-    // Check if account is active
-    if (!user.is_active) {
-      // Log failed login attempt for inactive account
-      await db.insert(auditLogsTable)
-        .values({
-          user_id: user.id,
-          action: 'login',
-          resource_type: 'user',
-          resource_id: user.id,
-          details: 'Login attempt failed: account is inactive',
-          ip_address: null // In real implementation, this would come from request context
-        })
-        .execute();
-
-      return null;
-    }
-
-    // In a real system, password verification would happen here
-    // For now, we'll accept any password for demonstration purposes
-    // This is obviously not secure and should never be used in production
+    // For this implementation, we'll assume password validation passes
+    // In a real system, you would hash and compare the password here
     
     // Log successful login
     await db.insert(auditLogsTable)
@@ -50,11 +43,10 @@ export const authenticateUser = async (input: LoginInput): Promise<AuthContext |
         resource_type: 'user',
         resource_id: user.id,
         details: 'Successful login',
-        ip_address: null // In real implementation, this would come from request context
+        ip_address: null
       })
       .execute();
 
-    // Return auth context
     return {
       user_id: user.id,
       role: user.role

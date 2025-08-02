@@ -10,8 +10,12 @@ describe('deleteCompetition', () => {
   beforeEach(createDB);
   afterEach(resetDB);
 
-  it('should delete competition successfully as administrator', async () => {
-    // Create administrator user
+  let adminUser: any;
+  let staffUser: any;
+  let competition: any;
+
+  beforeEach(async () => {
+    // Create admin user
     const adminResult = await db.insert(usersTable)
       .values({
         email: 'admin@test.com',
@@ -21,154 +25,8 @@ describe('deleteCompetition', () => {
       })
       .returning()
       .execute();
-    const adminId = adminResult[0].id;
+    adminUser = adminResult[0];
 
-    // Create competition
-    const competitionResult = await db.insert(competitionsTable)
-      .values({
-        name: 'Test Competition',
-        description: 'A test competition',
-        type: 'plank_hold',
-        data_entry_method: 'staff_only',
-        start_date: new Date(),
-        end_date: new Date(),
-        created_by: adminId
-      })
-      .returning()
-      .execute();
-    const competitionId = competitionResult[0].id;
-
-    // Delete competition
-    const result = await deleteCompetition(competitionId, adminId);
-
-    expect(result.success).toBe(true);
-
-    // Verify competition is deleted
-    const competitions = await db.select()
-      .from(competitionsTable)
-      .where(eq(competitionsTable.id, competitionId))
-      .execute();
-    expect(competitions).toHaveLength(0);
-  });
-
-  it('should delete competition entries when deleting competition', async () => {
-    // Create administrator user
-    const adminResult = await db.insert(usersTable)
-      .values({
-        email: 'admin@test.com',
-        first_name: 'Admin',
-        last_name: 'User',
-        role: 'administrator'
-      })
-      .returning()
-      .execute();
-    const adminId = adminResult[0].id;
-
-    // Create member user
-    const memberResult = await db.insert(usersTable)
-      .values({
-        email: 'member@test.com',
-        first_name: 'Member',
-        last_name: 'User',
-        role: 'member'
-      })
-      .returning()
-      .execute();
-    const memberId = memberResult[0].id;
-
-    // Create competition
-    const competitionResult = await db.insert(competitionsTable)
-      .values({
-        name: 'Test Competition',
-        description: 'A test competition',
-        type: 'squats',
-        data_entry_method: 'user_entry',
-        start_date: new Date(),
-        end_date: new Date(),
-        created_by: adminId
-      })
-      .returning()
-      .execute();
-    const competitionId = competitionResult[0].id;
-
-    // Create competition entry
-    await db.insert(competitionEntriesTable)
-      .values({
-        competition_id: competitionId,
-        user_id: memberId,
-        value: '50.00', // Convert to string for numeric column
-        unit: 'reps',
-        notes: 'Test entry',
-        entered_by: adminId
-      })
-      .execute();
-
-    // Verify entry exists before deletion
-    const entriesBefore = await db.select()
-      .from(competitionEntriesTable)
-      .where(eq(competitionEntriesTable.competition_id, competitionId))
-      .execute();
-    expect(entriesBefore).toHaveLength(1);
-
-    // Delete competition
-    const result = await deleteCompetition(competitionId, adminId);
-
-    expect(result.success).toBe(true);
-
-    // Verify entries are also deleted
-    const entriesAfter = await db.select()
-      .from(competitionEntriesTable)
-      .where(eq(competitionEntriesTable.competition_id, competitionId))
-      .execute();
-    expect(entriesAfter).toHaveLength(0);
-  });
-
-  it('should create audit log entry for deletion', async () => {
-    // Create administrator user
-    const adminResult = await db.insert(usersTable)
-      .values({
-        email: 'admin@test.com',
-        first_name: 'Admin',
-        last_name: 'User',
-        role: 'administrator'
-      })
-      .returning()
-      .execute();
-    const adminId = adminResult[0].id;
-
-    // Create competition
-    const competitionResult = await db.insert(competitionsTable)
-      .values({
-        name: 'Test Competition',
-        description: 'A test competition',
-        type: 'attendance',
-        data_entry_method: 'staff_only',
-        start_date: new Date(),
-        end_date: new Date(),
-        created_by: adminId
-      })
-      .returning()
-      .execute();
-    const competitionId = competitionResult[0].id;
-
-    // Delete competition
-    await deleteCompetition(competitionId, adminId);
-
-    // Verify audit log was created
-    const auditLogs = await db.select()
-      .from(auditLogsTable)
-      .where(eq(auditLogsTable.user_id, adminId))
-      .execute();
-
-    expect(auditLogs).toHaveLength(1);
-    expect(auditLogs[0].action).toEqual('delete');
-    expect(auditLogs[0].resource_type).toEqual('competition');
-    expect(auditLogs[0].resource_id).toEqual(competitionId);
-    expect(auditLogs[0].details).toEqual('Deleted competition: Test Competition');
-    expect(auditLogs[0].created_at).toBeInstanceOf(Date);
-  });
-
-  it('should throw error when user is not administrator', async () => {
     // Create staff user
     const staffResult = await db.insert(usersTable)
       .values({
@@ -179,64 +37,40 @@ describe('deleteCompetition', () => {
       })
       .returning()
       .execute();
-    const staffId = staffResult[0].id;
+    staffUser = staffResult[0];
 
     // Create competition
     const competitionResult = await db.insert(competitionsTable)
       .values({
         name: 'Test Competition',
         description: 'A test competition',
-        type: 'other',
+        type: 'plank_hold',
         data_entry_method: 'staff_only',
-        start_date: new Date(),
-        end_date: new Date(),
-        created_by: staffId
+        start_date: new Date('2024-01-01'),
+        end_date: new Date('2024-01-31'),
+        created_by: adminUser.id
       })
       .returning()
       .execute();
-    const competitionId = competitionResult[0].id;
+    competition = competitionResult[0];
+  });
 
-    // Attempt to delete as staff should fail
-    await expect(deleteCompetition(competitionId, staffId))
-      .rejects.toThrow(/only administrators can delete competitions/i);
+  it('should delete competition when user is administrator', async () => {
+    const result = await deleteCompetition(competition.id, adminUser.id);
 
-    // Verify competition still exists
+    expect(result.success).toBe(true);
+
+    // Verify competition was deleted
     const competitions = await db.select()
       .from(competitionsTable)
-      .where(eq(competitionsTable.id, competitionId))
+      .where(eq(competitionsTable.id, competition.id))
       .execute();
-    expect(competitions).toHaveLength(1);
+
+    expect(competitions).toHaveLength(0);
   });
 
-  it('should throw error when user does not exist', async () => {
-    const nonExistentUserId = 99999;
-    const competitionId = 1;
-
-    await expect(deleteCompetition(competitionId, nonExistentUserId))
-      .rejects.toThrow(/user not found/i);
-  });
-
-  it('should throw error when competition does not exist', async () => {
-    // Create administrator user
-    const adminResult = await db.insert(usersTable)
-      .values({
-        email: 'admin@test.com',
-        first_name: 'Admin',
-        last_name: 'User',
-        role: 'administrator'
-      })
-      .returning()
-      .execute();
-    const adminId = adminResult[0].id;
-
-    const nonExistentCompetitionId = 99999;
-
-    await expect(deleteCompetition(nonExistentCompetitionId, adminId))
-      .rejects.toThrow(/competition not found/i);
-  });
-
-  it('should throw error when member user tries to delete', async () => {
-    // Create member user
+  it('should delete associated competition entries', async () => {
+    // Create member user for entry
     const memberResult = await db.insert(usersTable)
       .values({
         email: 'member@test.com',
@@ -246,44 +80,69 @@ describe('deleteCompetition', () => {
       })
       .returning()
       .execute();
-    const memberId = memberResult[0].id;
 
-    // Create administrator for competition creation
-    const adminResult = await db.insert(usersTable)
+    // Create competition entry
+    await db.insert(competitionEntriesTable)
       .values({
-        email: 'admin@test.com',
-        first_name: 'Admin',
-        last_name: 'User',
-        role: 'administrator'
+        competition_id: competition.id,
+        user_id: memberResult[0].id,
+        value: '120.50',
+        unit: 'seconds',
+        entered_by: staffUser.id
       })
-      .returning()
       .execute();
-    const adminId = adminResult[0].id;
 
-    // Create competition
-    const competitionResult = await db.insert(competitionsTable)
-      .values({
-        name: 'Test Competition',
-        description: 'A test competition',
-        type: 'plank_hold',
-        data_entry_method: 'user_entry',
-        start_date: new Date(),
-        end_date: new Date(),
-        created_by: adminId
-      })
-      .returning()
+    await deleteCompetition(competition.id, adminUser.id);
+
+    // Verify entries were deleted
+    const entries = await db.select()
+      .from(competitionEntriesTable)
+      .where(eq(competitionEntriesTable.competition_id, competition.id))
       .execute();
-    const competitionId = competitionResult[0].id;
 
-    // Attempt to delete as member should fail
-    await expect(deleteCompetition(competitionId, memberId))
+    expect(entries).toHaveLength(0);
+  });
+
+  it('should create audit log entry', async () => {
+    await deleteCompetition(competition.id, adminUser.id);
+
+    const auditLogs = await db.select()
+      .from(auditLogsTable)
+      .where(eq(auditLogsTable.resource_id, competition.id))
+      .execute();
+
+    expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0].user_id).toEqual(adminUser.id);
+    expect(auditLogs[0].action).toEqual('delete');
+    expect(auditLogs[0].resource_type).toEqual('competition');
+    expect(auditLogs[0].resource_id).toEqual(competition.id);
+    expect(auditLogs[0].details).toEqual('Deleted competition: Test Competition');
+  });
+
+  it('should throw error when user is not administrator', async () => {
+    await expect(deleteCompetition(competition.id, staffUser.id))
       .rejects.toThrow(/only administrators can delete competitions/i);
 
-    // Verify competition still exists
+    // Verify competition was not deleted
     const competitions = await db.select()
       .from(competitionsTable)
-      .where(eq(competitionsTable.id, competitionId))
+      .where(eq(competitionsTable.id, competition.id))
       .execute();
+
     expect(competitions).toHaveLength(1);
+  });
+
+  it('should throw error when user does not exist', async () => {
+    const nonExistentUserId = 999;
+
+    await expect(deleteCompetition(competition.id, nonExistentUserId))
+      .rejects.toThrow(/user not found/i);
+  });
+
+  it('should throw error when competition does not exist', async () => {
+    const nonExistentCompetitionId = 999;
+
+    await expect(deleteCompetition(nonExistentCompetitionId, adminUser.id))
+      .rejects.toThrow(/competition not found/i);
   });
 });

@@ -12,6 +12,8 @@ export const createUser = async (input: CreateUserInput): Promise<User> => {
         first_name: input.first_name,
         last_name: input.last_name,
         role: input.role
+        // is_active defaults to true in database
+        // created_at and updated_at have default values
       })
       .returning()
       .execute();

@@ -6,7 +6,7 @@ import { eq, and } from 'drizzle-orm';
 
 export const createCompetitionEntry = async (input: CreateCompetitionEntryInput, enteredBy: number): Promise<CompetitionEntry> => {
   try {
-    // Validate competition exists and is active
+    // Validate that the competition exists and is active
     const competitions = await db.select()
       .from(competitionsTable)
       .where(eq(competitionsTable.id, input.competition_id))
@@ -21,7 +21,7 @@ export const createCompetitionEntry = async (input: CreateCompetitionEntryInput,
       throw new Error('Competition is not active');
     }
 
-    // Validate target user exists and is active
+    // Validate that the user exists and is active
     const users = await db.select()
       .from(usersTable)
       .where(eq(usersTable.id, input.user_id))
@@ -31,12 +31,12 @@ export const createCompetitionEntry = async (input: CreateCompetitionEntryInput,
       throw new Error('User not found');
     }
 
-    const targetUser = users[0];
-    if (!targetUser.is_active) {
+    const user = users[0];
+    if (!user.is_active) {
       throw new Error('User is not active');
     }
 
-    // Validate entered_by user exists and is active
+    // Validate that the person entering the data exists and is active
     const enteredByUsers = await db.select()
       .from(usersTable)
       .where(eq(usersTable.id, enteredBy))
@@ -51,11 +51,11 @@ export const createCompetitionEntry = async (input: CreateCompetitionEntryInput,
       throw new Error('Entered by user is not active');
     }
 
-    // Validate data entry permissions
+    // Check permissions based on competition data entry method
     if (competition.data_entry_method === 'staff_only') {
       // Only staff and administrators can enter data
       if (enteredByUser.role === 'member') {
-        throw new Error('Members cannot enter data for staff-only competitions');
+        throw new Error('Only staff can enter data for this competition');
       }
     } else if (competition.data_entry_method === 'user_entry') {
       // Members can only enter data for themselves, staff can enter for anyone
@@ -86,7 +86,8 @@ export const createCompetitionEntry = async (input: CreateCompetitionEntryInput,
         action: 'create',
         resource_type: 'competition_entry',
         resource_id: entry.id,
-        details: `Created entry for user ${input.user_id} in competition ${input.competition_id} with value ${input.value}`
+        details: `Created entry for competition ${competition.name} (ID: ${input.competition_id}) for user ${input.user_id} with value ${input.value}`,
+        ip_address: null
       })
       .execute();
 

@@ -7,13 +7,13 @@ import { eq } from 'drizzle-orm';
 export const updateUser = async (input: UpdateUserInput): Promise<User> => {
   try {
     // Check if user exists
-    const existingUsers = await db.select()
+    const existingUser = await db.select()
       .from(usersTable)
       .where(eq(usersTable.id, input.id))
       .execute();
 
-    if (existingUsers.length === 0) {
-      throw new Error(`User with id ${input.id} not found`);
+    if (existingUser.length === 0) {
+      throw new Error('User not found');
     }
 
     // Build update object with only provided fields

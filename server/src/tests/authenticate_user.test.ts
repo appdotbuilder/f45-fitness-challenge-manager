@@ -7,54 +7,42 @@ import { type LoginInput } from '../schema';
 import { authenticateUser } from '../handlers/authenticate_user';
 import { eq } from 'drizzle-orm';
 
-// Test user data
-const testUser = {
+const testLoginInput: LoginInput = {
   email: 'test@example.com',
-  first_name: 'Test',
-  last_name: 'User',
-  role: 'member' as const
-};
-
-const inactiveUser = {
-  email: 'inactive@example.com',
-  first_name: 'Inactive',
-  last_name: 'User',
-  role: 'member' as const,
-  is_active: false
+  password: 'password123'
 };
 
 describe('authenticateUser', () => {
   beforeEach(createDB);
   afterEach(resetDB);
 
-  it('should authenticate user with valid credentials', async () => {
+  it('should authenticate active user and return auth context', async () => {
     // Create test user
-    const users = await db.insert(usersTable)
-      .values(testUser)
+    const userResult = await db.insert(usersTable)
+      .values({
+        email: 'test@example.com',
+        first_name: 'Test',
+        last_name: 'User',
+        role: 'member',
+        is_active: true
+      })
       .returning()
       .execute();
-    
-    const createdUser = users[0];
 
-    const loginInput: LoginInput = {
-      email: 'test@example.com',
-      password: 'any-password'
-    };
+    const user = userResult[0];
 
-    const result = await authenticateUser(loginInput);
+    const result = await authenticateUser(testLoginInput);
 
     expect(result).not.toBeNull();
-    expect(result!.user_id).toBe(createdUser.id);
-    expect(result!.role).toBe('member');
+    expect(result!.user_id).toEqual(user.id);
+    expect(result!.role).toEqual('member');
   });
 
   it('should return null for non-existent user', async () => {
-    const loginInput: LoginInput = {
+    const result = await authenticateUser({
       email: 'nonexistent@example.com',
-      password: 'any-password'
-    };
-
-    const result = await authenticateUser(loginInput);
+      password: 'password123'
+    });
 
     expect(result).toBeNull();
   });
@@ -62,105 +50,111 @@ describe('authenticateUser', () => {
   it('should return null for inactive user', async () => {
     // Create inactive user
     await db.insert(usersTable)
-      .values(inactiveUser)
-      .returning()
+      .values({
+        email: 'inactive@example.com',
+        first_name: 'Inactive',
+        last_name: 'User',
+        role: 'member',
+        is_active: false
+      })
       .execute();
 
-    const loginInput: LoginInput = {
+    const result = await authenticateUser({
       email: 'inactive@example.com',
-      password: 'any-password'
-    };
-
-    const result = await authenticateUser(loginInput);
+      password: 'password123'
+    });
 
     expect(result).toBeNull();
   });
 
   it('should log successful login attempt', async () => {
     // Create test user
-    const users = await db.insert(usersTable)
-      .values(testUser)
+    const userResult = await db.insert(usersTable)
+      .values({
+        email: 'test@example.com',
+        first_name: 'Test',
+        last_name: 'User',
+        role: 'staff',
+        is_active: true
+      })
       .returning()
       .execute();
-    
-    const createdUser = users[0];
 
-    const loginInput: LoginInput = {
-      email: 'test@example.com',
-      password: 'any-password'
-    };
+    const user = userResult[0];
 
-    await authenticateUser(loginInput);
+    await authenticateUser(testLoginInput);
 
     // Check audit log
     const auditLogs = await db.select()
       .from(auditLogsTable)
-      .where(eq(auditLogsTable.user_id, createdUser.id))
+      .where(eq(auditLogsTable.user_id, user.id))
       .execute();
 
     expect(auditLogs).toHaveLength(1);
-    expect(auditLogs[0].action).toBe('login');
-    expect(auditLogs[0].resource_type).toBe('user');
-    expect(auditLogs[0].resource_id).toBe(createdUser.id);
-    expect(auditLogs[0].details).toBe('Successful login');
+    expect(auditLogs[0].action).toEqual('login');
+    expect(auditLogs[0].resource_type).toEqual('user');
+    expect(auditLogs[0].resource_id).toEqual(user.id);
+    expect(auditLogs[0].details).toEqual('Successful login');
     expect(auditLogs[0].created_at).toBeInstanceOf(Date);
   });
 
-  it('should log failed login attempt for inactive account', async () => {
+  it('should log failed login for inactive user', async () => {
     // Create inactive user
-    const users = await db.insert(usersTable)
-      .values(inactiveUser)
+    const userResult = await db.insert(usersTable)
+      .values({
+        email: 'inactive@example.com',
+        first_name: 'Inactive',
+        last_name: 'User',
+        role: 'member',
+        is_active: false
+      })
       .returning()
       .execute();
-    
-    const createdUser = users[0];
 
-    const loginInput: LoginInput = {
+    const user = userResult[0];
+
+    const result = await authenticateUser({
       email: 'inactive@example.com',
-      password: 'any-password'
-    };
-
-    const result = await authenticateUser(loginInput);
+      password: 'password123'
+    });
 
     expect(result).toBeNull();
 
-    // Check audit log
+    // Check audit log for failed attempt
     const auditLogs = await db.select()
       .from(auditLogsTable)
-      .where(eq(auditLogsTable.user_id, createdUser.id))
+      .where(eq(auditLogsTable.user_id, user.id))
       .execute();
 
     expect(auditLogs).toHaveLength(1);
-    expect(auditLogs[0].action).toBe('login');
-    expect(auditLogs[0].resource_type).toBe('user');
-    expect(auditLogs[0].resource_id).toBe(createdUser.id);
-    expect(auditLogs[0].details).toBe('Login attempt failed: account is inactive');
+    expect(auditLogs[0].action).toEqual('login');
+    expect(auditLogs[0].resource_type).toEqual('user');
+    expect(auditLogs[0].resource_id).toEqual(user.id);
+    expect(auditLogs[0].details).toEqual('Failed login - account inactive');
   });
 
-  it('should handle different user roles correctly', async () => {
-    // Create staff user
-    const staffUser = {
-      ...testUser,
-      email: 'staff@example.com',
-      role: 'staff' as const
-    };
-
-    const users = await db.insert(usersTable)
-      .values(staffUser)
+  it('should authenticate administrator user correctly', async () => {
+    // Create admin user
+    const userResult = await db.insert(usersTable)
+      .values({
+        email: 'admin@example.com',
+        first_name: 'Admin',
+        last_name: 'User',
+        role: 'administrator',
+        is_active: true
+      })
       .returning()
       .execute();
-    
-    const createdUser = users[0];
 
-    const loginInput: LoginInput = {
-      email: 'staff@example.com',
-      password: 'any-password'
-    };
+    const user = userResult[0];
 
-    const result = await authenticateUser(loginInput);
+    const result = await authenticateUser({
+      email: 'admin@example.com',
+      password: 'admin123'
+    });
 
     expect(result).not.toBeNull();
-    expect(result!.user_id).toBe(createdUser.id);
-    expect(result!.role).toBe('staff');
+    expect(result!.user_id).toEqual(user.id);
+    expect(result!.role).toEqual('administrator');
   });
 });

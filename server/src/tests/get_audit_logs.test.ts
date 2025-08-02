@@ -3,7 +3,44 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { resetDB, createDB } from '../helpers';
 import { db } from '../db';
 import { usersTable, auditLogsTable } from '../db/schema';
+import { type CreateUserInput, type CreateAuditLogInput } from '../schema';
 import { getAuditLogs } from '../handlers/get_audit_logs';
+
+// Test user for foreign key references
+const testUser: CreateUserInput = {
+  email: 'test@example.com',
+  first_name: 'Test',
+  last_name: 'User',
+  role: 'administrator'
+};
+
+// Test audit log entries
+const testAuditLog1: CreateAuditLogInput = {
+  user_id: 1, // Will be set after user creation
+  action: 'create',
+  resource_type: 'user',
+  resource_id: 1,
+  details: 'Created new user',
+  ip_address: '192.168.1.1'
+};
+
+const testAuditLog2: CreateAuditLogInput = {
+  user_id: 1, // Will be set after user creation
+  action: 'update',
+  resource_type: 'competition',
+  resource_id: 2,
+  details: 'Updated competition status',
+  ip_address: '192.168.1.2'
+};
+
+const testAuditLog3: CreateAuditLogInput = {
+  user_id: 1, // Will be set after user creation
+  action: 'delete',
+  resource_type: 'entry',
+  resource_id: null,
+  details: null,
+  ip_address: null
+};
 
 describe('getAuditLogs', () => {
   beforeEach(createDB);
@@ -15,188 +52,137 @@ describe('getAuditLogs', () => {
   });
 
   it('should return audit logs ordered by created_at desc', async () => {
-    // Create a test user first
+    // Create prerequisite user
     const userResult = await db.insert(usersTable)
-      .values({
-        email: 'test@example.com',
-        first_name: 'Test',
-        last_name: 'User',
-        role: 'member'
-      })
+      .values(testUser)
       .returning()
       .execute();
-
     const userId = userResult[0].id;
 
-    // Create multiple audit log entries with slight delays to ensure different timestamps
-    await db.insert(auditLogsTable)
-      .values({
-        user_id: userId,
-        action: 'create',
-        resource_type: 'user',
-        resource_id: userId,
-        details: 'First log entry',
-        ip_address: '192.168.1.1'
-      })
-      .execute();
+    // Create audit log entries with updated user_id
+    const auditLog1 = { ...testAuditLog1, user_id: userId };
+    const auditLog2 = { ...testAuditLog2, user_id: userId };
+    const auditLog3 = { ...testAuditLog3, user_id: userId };
 
-    // Add a small delay to ensure different timestamps
-    await new Promise(resolve => setTimeout(resolve, 1));
-
-    await db.insert(auditLogsTable)
-      .values({
-        user_id: userId,
-        action: 'update',
-        resource_type: 'user',
-        resource_id: userId,
-        details: 'Second log entry',
-        ip_address: '192.168.1.2'
-      })
-      .execute();
-
-    await new Promise(resolve => setTimeout(resolve, 1));
-
-    await db.insert(auditLogsTable)
-      .values({
-        user_id: userId,
-        action: 'login',
-        resource_type: 'auth',
-        resource_id: null,
-        details: 'Third log entry',
-        ip_address: '192.168.1.3'
-      })
-      .execute();
+    // Insert in specific order
+    await db.insert(auditLogsTable).values(auditLog1).execute();
+    await new Promise(resolve => setTimeout(resolve, 10)); // Small delay
+    await db.insert(auditLogsTable).values(auditLog2).execute();
+    await new Promise(resolve => setTimeout(resolve, 10)); // Small delay
+    await db.insert(auditLogsTable).values(auditLog3).execute();
 
     const result = await getAuditLogs();
 
     expect(result).toHaveLength(3);
-    expect(result[0].details).toEqual('Third log entry'); // Most recent first
-    expect(result[1].details).toEqual('Second log entry');
-    expect(result[2].details).toEqual('First log entry');
+    // Should be ordered by created_at desc (most recent first)
+    expect(result[0].action).toEqual('delete');
+    expect(result[1].action).toEqual('update');
+    expect(result[2].action).toEqual('create');
 
-    // Verify all required fields are present
-    result.forEach(log => {
-      expect(log.id).toBeDefined();
-      expect(log.user_id).toEqual(userId);
-      expect(log.action).toBeDefined();
-      expect(log.resource_type).toBeDefined();
-      expect(log.created_at).toBeInstanceOf(Date);
-    });
-  });
-
-  it('should support pagination with limit and offset', async () => {
-    // Create a test user
-    const userResult = await db.insert(usersTable)
-      .values({
-        email: 'test@example.com',
-        first_name: 'Test',
-        last_name: 'User',
-        role: 'member'
-      })
-      .returning()
-      .execute();
-
-    const userId = userResult[0].id;
-
-    // Create 5 audit log entries
-    for (let i = 1; i <= 5; i++) {
-      await db.insert(auditLogsTable)
-        .values({
-          user_id: userId,
-          action: 'create',
-          resource_type: 'test',
-          resource_id: i,
-          details: `Log entry ${i}`,
-          ip_address: '192.168.1.1'
-        })
-        .execute();
-      
-      // Small delay to ensure different timestamps
-      await new Promise(resolve => setTimeout(resolve, 1));
-    }
-
-    // Test limit
-    const limitedResult = await getAuditLogs(2);
-    expect(limitedResult).toHaveLength(2);
-
-    // Test offset
-    const offsetResult = await getAuditLogs(2, 2);
-    expect(offsetResult).toHaveLength(2);
-
-    // Verify different results
-    expect(limitedResult[0].id).not.toEqual(offsetResult[0].id);
-  });
-
-  it('should handle all audit action types correctly', async () => {
-    // Create a test user
-    const userResult = await db.insert(usersTable)
-      .values({
-        email: 'test@example.com',
-        first_name: 'Test',
-        last_name: 'User',
-        role: 'administrator'
-      })
-      .returning()
-      .execute();
-
-    const userId = userResult[0].id;
-
-    // Test different action types
-    const actions = ['create', 'update', 'delete', 'assign', 'deactivate', 'login', 'impersonate'] as const;
-    
-    for (const action of actions) {
-      await db.insert(auditLogsTable)
-        .values({
-          user_id: userId,
-          action: action,
-          resource_type: 'test',
-          resource_id: 1,
-          details: `Test ${action} action`,
-          ip_address: '192.168.1.1'
-        })
-        .execute();
-    }
-
-    const result = await getAuditLogs();
-    expect(result).toHaveLength(7);
-
-    // Verify all actions are represented
-    const resultActions = result.map(log => log.action);
-    actions.forEach(action => {
-      expect(resultActions).toContain(action);
-    });
-  });
-
-  it('should handle nullable fields correctly', async () => {
-    // Create a test user
-    const userResult = await db.insert(usersTable)
-      .values({
-        email: 'test@example.com',
-        first_name: 'Test',
-        last_name: 'User',
-        role: 'member'
-      })
-      .returning()
-      .execute();
-
-    const userId = userResult[0].id;
-
-    // Create audit log with nullable fields as null
-    await db.insert(auditLogsTable)
-      .values({
-        user_id: userId,
-        action: 'login',
-        resource_type: 'auth',
-        resource_id: null, // Nullable field
-        details: null, // Nullable field
-        ip_address: null // Nullable field
-      })
-      .execute();
-
-    const result = await getAuditLogs();
-    expect(result).toHaveLength(1);
+    // Verify all fields are present
+    expect(result[0].id).toBeDefined();
+    expect(result[0].user_id).toEqual(userId);
+    expect(result[0].resource_type).toEqual('entry');
     expect(result[0].resource_id).toBeNull();
     expect(result[0].details).toBeNull();
     expect(result[0].ip_address).toBeNull();
+    expect(result[0].created_at).toBeInstanceOf(Date);
+  });
+
+  it('should respect limit parameter', async () => {
+    // Create prerequisite user
+    const userResult = await db.insert(usersTable)
+      .values(testUser)
+      .returning()
+      .execute();
+    const userId = userResult[0].id;
+
+    // Create multiple audit log entries
+    const auditLog1 = { ...testAuditLog1, user_id: userId };
+    const auditLog2 = { ...testAuditLog2, user_id: userId };
+    const auditLog3 = { ...testAuditLog3, user_id: userId };
+
+    await db.insert(auditLogsTable).values([auditLog1, auditLog2, auditLog3]).execute();
+
+    const result = await getAuditLogs(2);
+
+    expect(result).toHaveLength(2);
+  });
+
+  it('should respect offset parameter', async () => {
+    // Create prerequisite user
+    const userResult = await db.insert(usersTable)
+      .values(testUser)
+      .returning()
+      .execute();
+    const userId = userResult[0].id;
+
+    // Create audit log entries
+    const auditLog1 = { ...testAuditLog1, user_id: userId };
+    const auditLog2 = { ...testAuditLog2, user_id: userId };
+    const auditLog3 = { ...testAuditLog3, user_id: userId };
+
+    await db.insert(auditLogsTable).values(auditLog1).execute();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    await db.insert(auditLogsTable).values(auditLog2).execute();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    await db.insert(auditLogsTable).values(auditLog3).execute();
+
+    const result = await getAuditLogs(10, 1);
+
+    expect(result).toHaveLength(2);
+    // Should skip the first (most recent) entry
+    expect(result[0].action).toEqual('update');
+    expect(result[1].action).toEqual('create');
+  });
+
+  it('should use default values for limit and offset', async () => {
+    // Create prerequisite user
+    const userResult = await db.insert(usersTable)
+      .values(testUser)
+      .returning()
+      .execute();
+    const userId = userResult[0].id;
+
+    // Create one audit log entry
+    const auditLog1 = { ...testAuditLog1, user_id: userId };
+    await db.insert(auditLogsTable).values(auditLog1).execute();
+
+    // Test with no parameters (should use defaults)
+    const result = await getAuditLogs();
+
+    expect(result).toHaveLength(1);
+    expect(result[0].action).toEqual('create');
+  });
+
+  it('should handle all audit action types correctly', async () => {
+    // Create prerequisite user
+    const userResult = await db.insert(usersTable)
+      .values(testUser)
+      .returning()
+      .execute();
+    const userId = userResult[0].id;
+
+    // Create audit logs with different action types
+    const actions = ['create', 'update', 'delete', 'assign', 'deactivate', 'login', 'impersonate'] as const;
+    
+    for (const action of actions) {
+      await db.insert(auditLogsTable).values({
+        user_id: userId,
+        action,
+        resource_type: 'test',
+        resource_id: 1,
+        details: `Test ${action} action`,
+        ip_address: '127.0.0.1'
+      }).execute();
+    }
+
+    const result = await getAuditLogs();
+
+    expect(result).toHaveLength(7);
+    
+    // Verify all actions are present
+    const resultActions = result.map(log => log.action).sort();
+    expect(resultActions).toEqual([...actions].sort());
   });
 });

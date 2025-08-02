@@ -14,7 +14,7 @@ describe('impersonateUser', () => {
     // Create administrator user
     const adminResult = await db.insert(usersTable)
       .values({
-        email: 'admin@example.com',
+        email: 'admin@test.com',
         first_name: 'Admin',
         last_name: 'User',
         role: 'administrator',
@@ -22,25 +22,24 @@ describe('impersonateUser', () => {
       })
       .returning()
       .execute();
+    const adminId = adminResult[0].id;
 
     // Create target user
-    const targetResult = await db.insert(usersTable)
+    const userResult = await db.insert(usersTable)
       .values({
-        email: 'member@example.com',
-        first_name: 'Member',
+        email: 'user@test.com',
+        first_name: 'Regular',
         last_name: 'User',
         role: 'member',
         is_active: true
       })
       .returning()
       .execute();
+    const userId = userResult[0].id;
 
-    const adminUser = adminResult[0];
-    const targetUser = targetResult[0];
+    const result = await impersonateUser(userId, adminId);
 
-    const result = await impersonateUser(targetUser.id, adminUser.id);
-
-    expect(result.user_id).toEqual(targetUser.id);
+    expect(result.user_id).toEqual(userId);
     expect(result.role).toEqual('member');
   });
 
@@ -48,7 +47,7 @@ describe('impersonateUser', () => {
     // Create administrator user
     const adminResult = await db.insert(usersTable)
       .values({
-        email: 'admin@example.com',
+        email: 'admin@test.com',
         first_name: 'Admin',
         last_name: 'User',
         role: 'administrator',
@@ -56,64 +55,55 @@ describe('impersonateUser', () => {
       })
       .returning()
       .execute();
+    const adminId = adminResult[0].id;
 
     // Create target user
-    const targetResult = await db.insert(usersTable)
+    const userResult = await db.insert(usersTable)
       .values({
-        email: 'staff@example.com',
-        first_name: 'Staff',
+        email: 'user@test.com',
+        first_name: 'Regular',
         last_name: 'User',
         role: 'staff',
         is_active: true
       })
       .returning()
       .execute();
+    const userId = userResult[0].id;
 
-    const adminUser = adminResult[0];
-    const targetUser = targetResult[0];
-
-    await impersonateUser(targetUser.id, adminUser.id);
+    await impersonateUser(userId, adminId);
 
     // Check audit log was created
     const auditLogs = await db.select()
       .from(auditLogsTable)
-      .where(eq(auditLogsTable.user_id, adminUser.id))
+      .where(eq(auditLogsTable.user_id, adminId))
       .execute();
 
     expect(auditLogs).toHaveLength(1);
     expect(auditLogs[0].action).toEqual('impersonate');
     expect(auditLogs[0].resource_type).toEqual('user');
-    expect(auditLogs[0].resource_id).toEqual(targetUser.id);
-    expect(auditLogs[0].details).toContain('admin@example.com');
-    expect(auditLogs[0].details).toContain('staff@example.com');
+    expect(auditLogs[0].resource_id).toEqual(userId);
+    expect(auditLogs[0].details).toEqual(`Administrator ${adminId} impersonated user ${userId}`);
     expect(auditLogs[0].created_at).toBeInstanceOf(Date);
   });
 
-  it('should reject impersonation when admin user does not exist', async () => {
-    // Create target user
-    const targetResult = await db.insert(usersTable)
+  it('should return correct role for staff user', async () => {
+    // Create administrator user
+    const adminResult = await db.insert(usersTable)
       .values({
-        email: 'member@example.com',
-        first_name: 'Member',
+        email: 'admin@test.com',
+        first_name: 'Admin',
         last_name: 'User',
-        role: 'member',
+        role: 'administrator',
         is_active: true
       })
       .returning()
       .execute();
+    const adminId = adminResult[0].id;
 
-    const targetUser = targetResult[0];
-
-    await expect(
-      impersonateUser(targetUser.id, 999)
-    ).rejects.toThrow(/administrator user not found/i);
-  });
-
-  it('should reject impersonation when user is not administrator', async () => {
-    // Create staff user (not administrator)
+    // Create staff user
     const staffResult = await db.insert(usersTable)
       .values({
-        email: 'staff@example.com',
+        email: 'staff@test.com',
         first_name: 'Staff',
         last_name: 'User',
         role: 'staff',
@@ -121,52 +111,66 @@ describe('impersonateUser', () => {
       })
       .returning()
       .execute();
+    const staffId = staffResult[0].id;
 
+    const result = await impersonateUser(staffId, adminId);
+
+    expect(result.user_id).toEqual(staffId);
+    expect(result.role).toEqual('staff');
+  });
+
+  it('should throw error if admin user does not exist', async () => {
     // Create target user
-    const targetResult = await db.insert(usersTable)
+    const userResult = await db.insert(usersTable)
       .values({
-        email: 'member@example.com',
-        first_name: 'Member',
+        email: 'user@test.com',
+        first_name: 'Regular',
         last_name: 'User',
         role: 'member',
         is_active: true
       })
       .returning()
       .execute();
+    const userId = userResult[0].id;
 
-    const staffUser = staffResult[0];
-    const targetUser = targetResult[0];
-
-    await expect(
-      impersonateUser(targetUser.id, staffUser.id)
-    ).rejects.toThrow(/only administrators can impersonate/i);
+    await expect(impersonateUser(userId, 999)).rejects.toThrow(/admin user not found/i);
   });
 
-  it('should reject impersonation when target user does not exist', async () => {
-    // Create administrator user
-    const adminResult = await db.insert(usersTable)
+  it('should throw error if admin user is not administrator', async () => {
+    // Create non-admin user
+    const userResult = await db.insert(usersTable)
       .values({
-        email: 'admin@example.com',
-        first_name: 'Admin',
+        email: 'staff@test.com',
+        first_name: 'Staff',
         last_name: 'User',
-        role: 'administrator',
+        role: 'staff',
         is_active: true
       })
       .returning()
       .execute();
+    const staffId = userResult[0].id;
 
-    const adminUser = adminResult[0];
+    // Create target user
+    const targetResult = await db.insert(usersTable)
+      .values({
+        email: 'user@test.com',
+        first_name: 'Regular',
+        last_name: 'User',
+        role: 'member',
+        is_active: true
+      })
+      .returning()
+      .execute();
+    const targetId = targetResult[0].id;
 
-    await expect(
-      impersonateUser(999, adminUser.id)
-    ).rejects.toThrow(/target user not found/i);
+    await expect(impersonateUser(targetId, staffId)).rejects.toThrow(/only administrators can impersonate/i);
   });
 
-  it('should reject impersonation when admin is inactive', async () => {
-    // Create inactive administrator user
+  it('should throw error if admin user is inactive', async () => {
+    // Create inactive administrator
     const adminResult = await db.insert(usersTable)
       .values({
-        email: 'admin@example.com',
+        email: 'admin@test.com',
         first_name: 'Admin',
         last_name: 'User',
         role: 'administrator',
@@ -174,32 +178,29 @@ describe('impersonateUser', () => {
       })
       .returning()
       .execute();
+    const adminId = adminResult[0].id;
 
     // Create target user
-    const targetResult = await db.insert(usersTable)
+    const userResult = await db.insert(usersTable)
       .values({
-        email: 'member@example.com',
-        first_name: 'Member',
+        email: 'user@test.com',
+        first_name: 'Regular',
         last_name: 'User',
         role: 'member',
         is_active: true
       })
       .returning()
       .execute();
+    const userId = userResult[0].id;
 
-    const adminUser = adminResult[0];
-    const targetUser = targetResult[0];
-
-    await expect(
-      impersonateUser(targetUser.id, adminUser.id)
-    ).rejects.toThrow(/administrator account is not active/i);
+    await expect(impersonateUser(userId, adminId)).rejects.toThrow(/admin user is not active/i);
   });
 
-  it('should reject impersonation when target user is inactive', async () => {
+  it('should throw error if target user does not exist', async () => {
     // Create administrator user
     const adminResult = await db.insert(usersTable)
       .values({
-        email: 'admin@example.com',
+        email: 'admin@test.com',
         first_name: 'Admin',
         last_name: 'User',
         role: 'administrator',
@@ -207,24 +208,38 @@ describe('impersonateUser', () => {
       })
       .returning()
       .execute();
+    const adminId = adminResult[0].id;
+
+    await expect(impersonateUser(999, adminId)).rejects.toThrow(/target user not found/i);
+  });
+
+  it('should throw error if target user is inactive', async () => {
+    // Create administrator user
+    const adminResult = await db.insert(usersTable)
+      .values({
+        email: 'admin@test.com',
+        first_name: 'Admin',
+        last_name: 'User',
+        role: 'administrator',
+        is_active: true
+      })
+      .returning()
+      .execute();
+    const adminId = adminResult[0].id;
 
     // Create inactive target user
-    const targetResult = await db.insert(usersTable)
+    const userResult = await db.insert(usersTable)
       .values({
-        email: 'member@example.com',
-        first_name: 'Member',
+        email: 'user@test.com',
+        first_name: 'Regular',
         last_name: 'User',
         role: 'member',
         is_active: false
       })
       .returning()
       .execute();
+    const userId = userResult[0].id;
 
-    const adminUser = adminResult[0];
-    const targetUser = targetResult[0];
-
-    await expect(
-      impersonateUser(targetUser.id, adminUser.id)
-    ).rejects.toThrow(/target user account is not active/i);
+    await expect(impersonateUser(userId, adminId)).rejects.toThrow(/cannot impersonate inactive user/i);
   });
 });

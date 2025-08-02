@@ -6,19 +6,17 @@ import { desc } from 'drizzle-orm';
 
 export const getAuditLogs = async (limit: number = 50, offset: number = 0): Promise<AuditLog[]> => {
   try {
-    // Build query with pagination and ordering (most recent first)
-    let query = db.select()
+    // Query audit logs with pagination, ordered by most recent first
+    const results = await db.select()
       .from(auditLogsTable)
       .orderBy(desc(auditLogsTable.created_at))
       .limit(limit)
-      .offset(offset);
+      .offset(offset)
+      .execute();
 
-    const results = await query.execute();
-
-    // Return results (no numeric conversions needed for audit logs)
     return results;
   } catch (error) {
-    console.error('Get audit logs failed:', error);
+    console.error('Audit logs retrieval failed:', error);
     throw error;
   }
 };

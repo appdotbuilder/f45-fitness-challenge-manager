@@ -1,57 +1,51 @@
 
 import { db } from '../db';
-import { competitionEntriesTable, competitionsTable } from '../db/schema';
+import { competitionEntriesTable, competitionsTable, usersTable } from '../db/schema';
 import { type CompetitionEntry } from '../schema';
-import { eq, and, or, type SQL } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 
 export const getUserStats = async (userId: number, requestingUserId: number, role: string): Promise<CompetitionEntry[]> => {
   try {
-    // Authorization logic - only apply to members
+    // Authorization logic
     if (role === 'member' && userId !== requestingUserId) {
-      throw new Error('Members can only view their own stats');
+      throw new Error('Members can only view their own statistics');
     }
 
-    // Start with base query
-    let query = db.select()
-      .from(competitionEntriesTable)
-      .innerJoin(competitionsTable, eq(competitionEntriesTable.competition_id, competitionsTable.id));
+    // For staff, check if they can view this user's stats (assigned to their competitions)
+    if (role === 'staff' && userId !== requestingUserId) {
+      // Check if the staff member is assigned to any competitions this user participated in
+      const staffAssignedEntries = await db.select()
+        .from(competitionEntriesTable)
+        .innerJoin(competitionsTable, eq(competitionEntriesTable.competition_id, competitionsTable.id))
+        .where(
+          and(
+            eq(competitionEntriesTable.user_id, userId),
+            eq(competitionsTable.assigned_to, requestingUserId)
+          )
+        )
+        .execute();
 
-    // Build conditions array
-    const conditions: SQL<unknown>[] = [
-      eq(competitionEntriesTable.user_id, userId)
-    ];
-
-    // Apply role-based filtering - only for staff
-    if (role === 'staff') {
-      // Staff can only see entries for competitions they created or are assigned to
-      const staffCondition = or(
-        eq(competitionsTable.created_by, requestingUserId),
-        eq(competitionsTable.assigned_to, requestingUserId)
-      );
-      
-      if (staffCondition) {
-        conditions.push(staffCondition);
+      // If no entries found in staff's assigned competitions, deny access
+      if (staffAssignedEntries.length === 0) {
+        throw new Error('Staff can only view statistics for users in their assigned competitions');
       }
     }
-    // Administrators can see all entries - no additional filtering needed
 
-    // Apply conditions if we have any
-    const finalQuery = conditions.length === 1 
-      ? query.where(conditions[0])
-      : query.where(and(...conditions));
+    // Administrators can view any user's stats - no additional checks needed
 
-    const results = await finalQuery.execute();
+    // Fetch user's competition entries
+    const results = await db.select()
+      .from(competitionEntriesTable)
+      .where(eq(competitionEntriesTable.user_id, userId))
+      .execute();
 
-    // Transform results and handle numeric conversion
-    return results.map(result => {
-      const entry = result.competition_entries;
-      return {
-        ...entry,
-        value: parseFloat(entry.value) // Convert numeric field back to number
-      };
-    });
+    // Convert numeric fields and return
+    return results.map(entry => ({
+      ...entry,
+      value: parseFloat(entry.value) // Convert numeric field to number
+    }));
   } catch (error) {
-    console.error('Get user stats failed:', error);
+    console.error('Failed to get user stats:', error);
     throw error;
   }
 };

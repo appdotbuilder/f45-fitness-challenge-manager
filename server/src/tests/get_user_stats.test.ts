@@ -12,34 +12,34 @@ describe('getUserStats', () => {
   let memberUser: any;
   let staffUser: any;
   let adminUser: any;
-  let otherUser: any;
-  let competition1: any;
-  let competition2: any;
+  let otherMemberUser: any;
+  let competition: any;
+  let assignedCompetition: any;
 
   beforeEach(async () => {
     // Create test users
     const users = await db.insert(usersTable)
       .values([
         {
-          email: 'member@example.com',
+          email: 'member@test.com',
           first_name: 'Member',
           last_name: 'User',
           role: 'member'
         },
         {
-          email: 'staff@example.com',
+          email: 'staff@test.com',
           first_name: 'Staff',
           last_name: 'User',
           role: 'staff'
         },
         {
-          email: 'admin@example.com',
+          email: 'admin@test.com',
           first_name: 'Admin',
           last_name: 'User',
           role: 'administrator'
         },
         {
-          email: 'other@example.com',
+          email: 'other@test.com',
           first_name: 'Other',
           last_name: 'User',
           role: 'member'
@@ -48,27 +48,30 @@ describe('getUserStats', () => {
       .returning()
       .execute();
 
-    [memberUser, staffUser, adminUser, otherUser] = users;
+    memberUser = users[0];
+    staffUser = users[1];
+    adminUser = users[2];
+    otherMemberUser = users[3];
 
     // Create test competitions
     const competitions = await db.insert(competitionsTable)
       .values([
         {
-          name: 'Staff Competition',
-          description: 'Competition created by staff',
+          name: 'General Competition',
+          description: 'A general competition',
+          type: 'squats',
+          data_entry_method: 'staff_only',
+          start_date: new Date('2024-01-01'),
+          end_date: new Date('2024-12-31'),
+          created_by: adminUser.id
+        },
+        {
+          name: 'Staff Assigned Competition',
+          description: 'Competition assigned to staff',
           type: 'plank_hold',
           data_entry_method: 'staff_only',
           start_date: new Date('2024-01-01'),
-          end_date: new Date('2024-01-31'),
-          created_by: staffUser.id
-        },
-        {
-          name: 'Other Competition',
-          description: 'Competition by other staff',
-          type: 'squats',
-          data_entry_method: 'staff_only',
-          start_date: new Date('2024-02-01'),
-          end_date: new Date('2024-02-28'),
+          end_date: new Date('2024-12-31'),
           created_by: adminUser.id,
           assigned_to: staffUser.id
         }
@@ -76,154 +79,179 @@ describe('getUserStats', () => {
       .returning()
       .execute();
 
-    [competition1, competition2] = competitions;
-
-    // Create test competition entries
-    await db.insert(competitionEntriesTable)
-      .values([
-        {
-          competition_id: competition1.id,
-          user_id: memberUser.id,
-          value: '120.50',
-          unit: 'seconds',
-          notes: 'Good performance',
-          entered_by: staffUser.id
-        },
-        {
-          competition_id: competition2.id,
-          user_id: memberUser.id,
-          value: '85.25',
-          unit: 'reps',
-          notes: 'Personal best',
-          entered_by: staffUser.id
-        },
-        {
-          competition_id: competition1.id,
-          user_id: otherUser.id,
-          value: '95.75',
-          unit: 'seconds',
-          entered_by: staffUser.id
-        }
-      ])
-      .execute();
+    competition = competitions[0];
+    assignedCompetition = competitions[1];
   });
 
   it('should allow members to view their own stats', async () => {
+    // Create competition entry for member
+    await db.insert(competitionEntriesTable)
+      .values({
+        competition_id: competition.id,
+        user_id: memberUser.id,
+        value: '25.50',
+        unit: 'reps',
+        notes: 'Good performance',
+        entered_by: staffUser.id
+      })
+      .execute();
+
     const result = await getUserStats(memberUser.id, memberUser.id, 'member');
 
-    expect(result).toHaveLength(2);
+    expect(result).toHaveLength(1);
     expect(result[0].user_id).toEqual(memberUser.id);
-    expect(result[1].user_id).toEqual(memberUser.id);
-    
-    // Verify numeric conversion
+    expect(result[0].competition_id).toEqual(competition.id);
+    expect(result[0].value).toEqual(25.50);
     expect(typeof result[0].value).toBe('number');
-    expect(typeof result[1].value).toBe('number');
-    
-    // Check actual values - use numeric sort
-    const values = result.map(r => r.value).sort((a, b) => a - b);
-    expect(values).toEqual([85.25, 120.5]);
+    expect(result[0].unit).toEqual('reps');
+    expect(result[0].notes).toEqual('Good performance');
   });
 
   it('should prevent members from viewing other users stats', async () => {
     await expect(
-      getUserStats(otherUser.id, memberUser.id, 'member')
-    ).rejects.toThrow(/members can only view their own stats/i);
+      getUserStats(otherMemberUser.id, memberUser.id, 'member')
+    ).rejects.toThrow(/members can only view their own statistics/i);
   });
 
-  it('should allow staff to view stats for users in their competitions', async () => {
-    const result = await getUserStats(memberUser.id, staffUser.id, 'staff');
-
-    expect(result).toHaveLength(2);
-    expect(result[0].user_id).toEqual(memberUser.id);
-    expect(result[1].user_id).toEqual(memberUser.id);
-    
-    // Verify numeric conversion
-    expect(typeof result[0].value).toBe('number');
-    expect(typeof result[1].value).toBe('number');
-  });
-
-  it('should limit staff to only competitions they created or are assigned to', async () => {
-    // Create a competition the staff user has no access to
-    const otherStaff = await db.insert(usersTable)
-      .values({
-        email: 'otherstaff@example.com',
-        first_name: 'Other',
-        last_name: 'Staff',
-        role: 'staff'
-      })
-      .returning()
-      .execute();
-
-    const restrictedCompetition = await db.insert(competitionsTable)
-      .values({
-        name: 'Restricted Competition',
-        description: 'Staff has no access',
-        type: 'attendance',
-        data_entry_method: 'staff_only',
-        start_date: new Date('2024-03-01'),
-        end_date: new Date('2024-03-31'),
-        created_by: otherStaff[0].id
-      })
-      .returning()
-      .execute();
-
-    // Add entry to restricted competition
+  it('should allow staff to view their own stats', async () => {
+    // Create competition entry for staff user
     await db.insert(competitionEntriesTable)
       .values({
-        competition_id: restrictedCompetition[0].id,
-        user_id: memberUser.id,
-        value: '30.00',
-        unit: 'days',
-        entered_by: otherStaff[0].id
+        competition_id: competition.id,
+        user_id: staffUser.id,
+        value: '30.75',
+        unit: 'reps',
+        notes: 'Staff entry',
+        entered_by: adminUser.id
       })
       .execute();
 
-    // Staff should only see entries from competitions they have access to
+    const result = await getUserStats(staffUser.id, staffUser.id, 'staff');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].user_id).toEqual(staffUser.id);
+    expect(result[0].value).toEqual(30.75);
+    expect(typeof result[0].value).toBe('number');
+  });
+
+  it('should allow staff to view stats for users in their assigned competitions', async () => {
+    // Create competition entry for member in staff-assigned competition
+    await db.insert(competitionEntriesTable)
+      .values({
+        competition_id: assignedCompetition.id,
+        user_id: memberUser.id,
+        value: '45.25',
+        unit: 'seconds',
+        notes: 'Plank hold record',
+        entered_by: staffUser.id
+      })
+      .execute();
+
     const result = await getUserStats(memberUser.id, staffUser.id, 'staff');
-    expect(result).toHaveLength(2); // Only the original 2 entries, not the restricted one
+
+    expect(result).toHaveLength(1);
+    expect(result[0].user_id).toEqual(memberUser.id);
+    expect(result[0].competition_id).toEqual(assignedCompetition.id);
+    expect(result[0].value).toEqual(45.25);
+    expect(result[0].unit).toEqual('seconds');
+  });
+
+  it('should prevent staff from viewing stats for users not in their assigned competitions', async () => {
+    // Create competition entry for member in non-assigned competition
+    await db.insert(competitionEntriesTable)
+      .values({
+        competition_id: competition.id,
+        user_id: memberUser.id,
+        value: '20.00',
+        unit: 'reps',
+        notes: 'Regular entry',
+        entered_by: adminUser.id
+      })
+      .execute();
+
+    await expect(
+      getUserStats(memberUser.id, staffUser.id, 'staff')
+    ).rejects.toThrow(/staff can only view statistics for users in their assigned competitions/i);
   });
 
   it('should allow administrators to view any user stats', async () => {
-    const result = await getUserStats(memberUser.id, adminUser.id, 'administrator');
-
-    expect(result).toHaveLength(2);
-    expect(result[0].user_id).toEqual(memberUser.id);
-    expect(result[1].user_id).toEqual(memberUser.id);
-    
-    // Verify numeric conversion
-    expect(typeof result[0].value).toBe('number');
-    expect(typeof result[1].value).toBe('number');
-  });
-
-  it('should return empty array for user with no entries', async () => {
-    const newUser = await db.insert(usersTable)
-      .values({
-        email: 'newuser@example.com',
-        first_name: 'New',
-        last_name: 'User',
-        role: 'member'
-      })
-      .returning()
+    // Create competition entries for different users
+    await db.insert(competitionEntriesTable)
+      .values([
+        {
+          competition_id: competition.id,
+          user_id: memberUser.id,
+          value: '15.50',
+          unit: 'reps',
+          notes: 'Member entry',
+          entered_by: staffUser.id
+        },
+        {
+          competition_id: assignedCompetition.id,
+          user_id: otherMemberUser.id,
+          value: '60.00',
+          unit: 'seconds',
+          notes: 'Other member entry',
+          entered_by: staffUser.id
+        }
+      ])
       .execute();
 
-    const result = await getUserStats(newUser[0].id, adminUser.id, 'administrator');
-    expect(result).toHaveLength(0);
+    // Admin can view member's stats
+    const memberResult = await getUserStats(memberUser.id, adminUser.id, 'administrator');
+    expect(memberResult).toHaveLength(1);
+    expect(memberResult[0].user_id).toEqual(memberUser.id);
+    expect(memberResult[0].value).toEqual(15.50);
+
+    // Admin can view other member's stats
+    const otherResult = await getUserStats(otherMemberUser.id, adminUser.id, 'administrator');
+    expect(otherResult).toHaveLength(1);
+    expect(otherResult[0].user_id).toEqual(otherMemberUser.id);
+    expect(otherResult[0].value).toEqual(60.00);
   });
 
-  it('should include all required fields in results', async () => {
+  it('should return empty array for user with no competition entries', async () => {
     const result = await getUserStats(memberUser.id, memberUser.id, 'member');
 
-    expect(result.length).toBeGreaterThan(0);
-    const entry = result[0];
+    expect(result).toHaveLength(0);
+    expect(Array.isArray(result)).toBe(true);
+  });
+
+  it('should return multiple entries for user with multiple competitions', async () => {
+    // Create multiple competition entries for the same user
+    await db.insert(competitionEntriesTable)
+      .values([
+        {
+          competition_id: competition.id,
+          user_id: memberUser.id,
+          value: '25.00',
+          unit: 'reps',
+          notes: 'First entry',
+          entered_by: staffUser.id
+        },
+        {
+          competition_id: assignedCompetition.id,
+          user_id: memberUser.id,
+          value: '120.50',
+          unit: 'seconds',
+          notes: 'Second entry',
+          entered_by: staffUser.id
+        }
+      ])
+      .execute();
+
+    const result = await getUserStats(memberUser.id, memberUser.id, 'member');
+
+    expect(result).toHaveLength(2);
     
-    expect(entry.id).toBeDefined();
-    expect(entry.competition_id).toBeDefined();
-    expect(entry.user_id).toEqual(memberUser.id);
-    expect(typeof entry.value).toBe('number');
-    expect(entry.unit).toBeDefined();
-    expect(entry.notes).toBeDefined();
-    expect(entry.entered_by).toBeDefined();
-    expect(entry.created_at).toBeInstanceOf(Date);
-    expect(entry.updated_at).toBeInstanceOf(Date);
+    // Verify both entries are returned
+    const competitionIds = result.map(entry => entry.competition_id);
+    expect(competitionIds).toContain(competition.id);
+    expect(competitionIds).toContain(assignedCompetition.id);
+    
+    // Verify numeric conversions
+    result.forEach(entry => {
+      expect(typeof entry.value).toBe('number');
+    });
   });
 });

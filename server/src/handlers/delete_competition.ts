@@ -5,34 +5,31 @@ import { eq } from 'drizzle-orm';
 
 export const deleteCompetition = async (competitionId: number, userId: number): Promise<{ success: boolean }> => {
   try {
-    // First, verify the user exists and is an administrator
-    const users = await db.select()
+    // Verify user is an administrator
+    const user = await db.select()
       .from(usersTable)
       .where(eq(usersTable.id, userId))
       .execute();
 
-    if (users.length === 0) {
+    if (user.length === 0) {
       throw new Error('User not found');
     }
 
-    const user = users[0];
-    if (user.role !== 'administrator') {
+    if (user[0].role !== 'administrator') {
       throw new Error('Only administrators can delete competitions');
     }
 
-    // Verify the competition exists
-    const competitions = await db.select()
+    // Verify competition exists
+    const competition = await db.select()
       .from(competitionsTable)
       .where(eq(competitionsTable.id, competitionId))
       .execute();
 
-    if (competitions.length === 0) {
+    if (competition.length === 0) {
       throw new Error('Competition not found');
     }
 
-    const competition = competitions[0];
-
-    // Delete competition entries first (cascade deletion)
+    // Delete competition entries first (cascade)
     await db.delete(competitionEntriesTable)
       .where(eq(competitionEntriesTable.competition_id, competitionId))
       .execute();
@@ -42,14 +39,14 @@ export const deleteCompetition = async (competitionId: number, userId: number): 
       .where(eq(competitionsTable.id, competitionId))
       .execute();
 
-    // Create audit log entry
+    // Log the deletion action
     await db.insert(auditLogsTable)
       .values({
         user_id: userId,
         action: 'delete',
         resource_type: 'competition',
         resource_id: competitionId,
-        details: `Deleted competition: ${competition.name}`,
+        details: `Deleted competition: ${competition[0].name}`,
         ip_address: null
       })
       .execute();

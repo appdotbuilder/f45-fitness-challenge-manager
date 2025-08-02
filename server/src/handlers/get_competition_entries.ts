@@ -6,19 +6,19 @@ import { eq, and } from 'drizzle-orm';
 
 export const getCompetitionEntries = async (competitionId: number, userId?: number): Promise<CompetitionEntry[]> => {
   try {
-    // Build conditions array
-    const conditions = [eq(competitionEntriesTable.competition_id, competitionId)];
-
-    // Add user filter if provided
-    if (userId !== undefined) {
-      conditions.push(eq(competitionEntriesTable.user_id, userId));
-    }
-
-    // Execute query with proper where clause
-    const results = await db.select()
-      .from(competitionEntriesTable)
-      .where(conditions.length === 1 ? conditions[0] : and(...conditions))
-      .execute();
+    // Build the query based on whether userId is provided
+    const results = userId !== undefined
+      ? await db.select()
+          .from(competitionEntriesTable)
+          .where(and(
+            eq(competitionEntriesTable.competition_id, competitionId),
+            eq(competitionEntriesTable.user_id, userId)
+          ))
+          .execute()
+      : await db.select()
+          .from(competitionEntriesTable)
+          .where(eq(competitionEntriesTable.competition_id, competitionId))
+          .execute();
 
     // Convert numeric fields back to numbers
     return results.map(entry => ({

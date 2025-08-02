@@ -2,281 +2,383 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { resetDB, createDB } from '../helpers';
 import { db } from '../db';
-import { usersTable, competitionsTable, competitionEntriesTable } from '../db/schema';
+import { usersTable, competitionsTable, competitionEntriesTable, auditLogsTable } from '../db/schema';
 import { type UpdateCompetitionEntryInput } from '../schema';
 import { updateCompetitionEntry } from '../handlers/update_competition_entry';
 import { eq } from 'drizzle-orm';
+
+// Test data
+const testUser = {
+  email: 'test@example.com',
+  first_name: 'Test',
+  last_name: 'User',
+  role: 'member' as const
+};
+
+const testStaff = {
+  email: 'staff@example.com',
+  first_name: 'Staff',
+  last_name: 'Member',
+  role: 'staff' as const
+};
+
+const testAdmin = {
+  email: 'admin@example.com',
+  first_name: 'Admin',
+  last_name: 'User',
+  role: 'administrator' as const
+};
+
+const testCompetition = {
+  name: 'Test Competition',
+  description: 'A test competition',
+  type: 'plank_hold' as const,
+  data_entry_method: 'user_entry' as const,
+  start_date: new Date('2024-01-01'),
+  end_date: new Date('2024-12-31')
+};
+
+const staffOnlyCompetition = {
+  name: 'Staff Only Competition',
+  description: 'A staff-only competition',
+  type: 'squats' as const,
+  data_entry_method: 'staff_only' as const,
+  start_date: new Date('2024-01-01'),
+  end_date: new Date('2024-12-31')
+};
 
 describe('updateCompetitionEntry', () => {
   beforeEach(createDB);
   afterEach(resetDB);
 
-  let testUser: any, staffUser: any, adminUser: any;
-  let testCompetition: any, staffOnlyCompetition: any, inactiveCompetition: any;
-  let testEntry: any;
+  it('should update a competition entry', async () => {
+    // Create test user and admin
+    const userResult = await db.insert(usersTable).values(testUser).returning().execute();
+    const adminResult = await db.insert(usersTable).values(testAdmin).returning().execute();
+    const userId = userResult[0].id;
+    const adminId = adminResult[0].id;
 
-  beforeEach(async () => {
-    // Create test users
-    const users = await db.insert(usersTable)
-      .values([
-        { email: 'user@test.com', first_name: 'Test', last_name: 'User', role: 'member' },
-        { email: 'staff@test.com', first_name: 'Staff', last_name: 'User', role: 'staff' },
-        { email: 'admin@test.com', first_name: 'Admin', last_name: 'User', role: 'administrator' }
-      ])
-      .returning()
-      .execute();
-
-    [testUser, staffUser, adminUser] = users;
-
-    // Create test competitions
-    const competitions = await db.insert(competitionsTable)
-      .values([
-        {
-          name: 'Test Competition',
-          description: 'A test competition',
-          type: 'squats',
-          data_entry_method: 'user_entry',
-          status: 'active',
-          start_date: new Date(),
-          end_date: new Date(Date.now() + 86400000),
-          created_by: staffUser.id,
-          assigned_to: staffUser.id
-        },
-        {
-          name: 'Staff Only Competition',
-          description: 'Staff only entry',
-          type: 'plank_hold',
-          data_entry_method: 'staff_only',
-          status: 'active',
-          start_date: new Date(),
-          end_date: new Date(Date.now() + 86400000),
-          created_by: adminUser.id,
-          assigned_to: staffUser.id
-        },
-        {
-          name: 'Inactive Competition',
-          description: 'Inactive competition',
-          type: 'attendance',
-          data_entry_method: 'user_entry',
-          status: 'inactive',
-          start_date: new Date(),
-          end_date: new Date(Date.now() + 86400000),
-          created_by: adminUser.id
-        }
-      ])
-      .returning()
-      .execute();
-
-    [testCompetition, staffOnlyCompetition, inactiveCompetition] = competitions;
-
-    // Create test entry
-    const entries = await db.insert(competitionEntriesTable)
+    // Create competition
+    const competitionResult = await db.insert(competitionsTable)
       .values({
-        competition_id: testCompetition.id,
-        user_id: testUser.id,
-        value: '50.00',
-        unit: 'reps',
-        notes: 'Initial entry',
-        entered_by: testUser.id
-      })
-      .returning()
-      .execute();
-
-    testEntry = entries[0];
-  });
-
-  it('should update competition entry with all fields', async () => {
-    const input: UpdateCompetitionEntryInput = {
-      id: testEntry.id,
-      value: 75,
-      unit: 'repetitions',
-      notes: 'Updated entry'
-    };
-
-    const result = await updateCompetitionEntry(input, testUser.id, 'member');
-
-    expect(result.id).toEqual(testEntry.id);
-    expect(result.value).toEqual(75);
-    expect(typeof result.value).toBe('number');
-    expect(result.unit).toEqual('repetitions');
-    expect(result.notes).toEqual('Updated entry');
-    expect(result.updated_at).toBeInstanceOf(Date);
-    expect(result.updated_at > testEntry.updated_at).toBe(true);
-  });
-
-  it('should update competition entry with partial fields', async () => {
-    const input: UpdateCompetitionEntryInput = {
-      id: testEntry.id,
-      value: 60
-    };
-
-    const result = await updateCompetitionEntry(input, testUser.id, 'member');
-
-    expect(result.value).toEqual(60);
-    expect(result.unit).toEqual('reps'); // Should keep original value
-    expect(result.notes).toEqual('Initial entry'); // Should keep original value
-  });
-
-  it('should save updated entry to database', async () => {
-    const input: UpdateCompetitionEntryInput = {
-      id: testEntry.id,
-      value: 80,
-      notes: 'Database test'
-    };
-
-    await updateCompetitionEntry(input, testUser.id, 'member');
-
-    const entries = await db.select()
-      .from(competitionEntriesTable)
-      .where(eq(competitionEntriesTable.id, testEntry.id))
-      .execute();
-
-    expect(entries).toHaveLength(1);
-    expect(parseFloat(entries[0].value)).toEqual(80);
-    expect(entries[0].notes).toEqual('Database test');
-    expect(entries[0].updated_at > testEntry.updated_at).toBe(true);
-  });
-
-  it('should allow staff to update entries for assigned competitions', async () => {
-    const input: UpdateCompetitionEntryInput = {
-      id: testEntry.id,
-      value: 90
-    };
-
-    const result = await updateCompetitionEntry(input, staffUser.id, 'staff');
-
-    expect(result.value).toEqual(90);
-  });
-
-  it('should allow administrators to update any entry', async () => {
-    const input: UpdateCompetitionEntryInput = {
-      id: testEntry.id,
-      value: 100
-    };
-
-    const result = await updateCompetitionEntry(input, adminUser.id, 'administrator');
-
-    expect(result.value).toEqual(100);
-  });
-
-  it('should reject update for non-existent entry', async () => {
-    const input: UpdateCompetitionEntryInput = {
-      id: 9999,
-      value: 50
-    };
-
-    await expect(updateCompetitionEntry(input, testUser.id, 'member'))
-      .rejects.toThrow(/not found/i);
-  });
-
-  it('should reject update from unauthorized user', async () => {
-    // Create another user
-    const otherUsers = await db.insert(usersTable)
-      .values({ email: 'other@test.com', first_name: 'Other', last_name: 'User', role: 'member' })
-      .returning()
-      .execute();
-
-    const otherUser = otherUsers[0];
-
-    const input: UpdateCompetitionEntryInput = {
-      id: testEntry.id,
-      value: 50
-    };
-
-    await expect(updateCompetitionEntry(input, otherUser.id, 'member'))
-      .rejects.toThrow(/insufficient permissions/i);
-  });
-
-  it('should reject user update for staff-only competition', async () => {
-    // Create entry in staff-only competition
-    const staffOnlyEntries = await db.insert(competitionEntriesTable)
-      .values({
-        competition_id: staffOnlyCompetition.id,
-        user_id: testUser.id,
-        value: '30.00',
-        unit: 'seconds',
-        notes: 'Staff entry',
-        entered_by: staffUser.id
-      })
-      .returning()
-      .execute();
-
-    const staffOnlyEntry = staffOnlyEntries[0];
-
-    const input: UpdateCompetitionEntryInput = {
-      id: staffOnlyEntry.id,
-      value: 45
-    };
-
-    await expect(updateCompetitionEntry(input, testUser.id, 'member'))
-      .rejects.toThrow(/users cannot edit entries/i);
-  });
-
-  it('should reject update for inactive competition', async () => {
-    // Create entry in inactive competition
-    const inactiveEntries = await db.insert(competitionEntriesTable)
-      .values({
-        competition_id: inactiveCompetition.id,
-        user_id: testUser.id,
-        value: '10.00',
-        unit: 'days',
-        notes: 'Inactive entry',
-        entered_by: testUser.id
-      })
-      .returning()
-      .execute();
-
-    const inactiveEntry = inactiveEntries[0];
-
-    const input: UpdateCompetitionEntryInput = {
-      id: inactiveEntry.id,
-      value: 15
-    };
-
-    await expect(updateCompetitionEntry(input, testUser.id, 'member'))
-      .rejects.toThrow(/cannot update entries for inactive/i);
-  });
-
-  it('should reject staff update for non-assigned competition', async () => {
-    // Create competition not assigned to staff user
-    const unassignedCompetitions = await db.insert(competitionsTable)
-      .values({
-        name: 'Unassigned Competition',
-        description: 'Not assigned to staff user',
-        type: 'squats',
-        data_entry_method: 'user_entry',
-        status: 'active',
-        start_date: new Date(),
-        end_date: new Date(Date.now() + 86400000),
-        created_by: adminUser.id,
+        ...testCompetition,
+        created_by: adminId,
         assigned_to: null
       })
       .returning()
       .execute();
+    const competitionId = competitionResult[0].id;
 
-    const unassignedCompetition = unassignedCompetitions[0];
-
-    // Create entry in unassigned competition
-    const unassignedEntries = await db.insert(competitionEntriesTable)
+    // Create entry
+    const entryResult = await db.insert(competitionEntriesTable)
       .values({
-        competition_id: unassignedCompetition.id,
-        user_id: testUser.id,
-        value: '25.00',
-        unit: 'reps',
-        notes: 'Unassigned entry',
-        entered_by: testUser.id
+        competition_id: competitionId,
+        user_id: userId,
+        value: '10.5',
+        unit: 'seconds',
+        notes: 'Initial entry',
+        entered_by: userId
       })
       .returning()
       .execute();
+    const entryId = entryResult[0].id;
 
-    const unassignedEntry = unassignedEntries[0];
-
-    const input: UpdateCompetitionEntryInput = {
-      id: unassignedEntry.id,
-      value: 35
+    const updateInput: UpdateCompetitionEntryInput = {
+      id: entryId,
+      value: 15.75,
+      unit: 'minutes',
+      notes: 'Updated entry'
     };
 
-    await expect(updateCompetitionEntry(input, staffUser.id, 'staff'))
+    const result = await updateCompetitionEntry(updateInput, adminId, 'administrator');
+
+    expect(result.id).toEqual(entryId);
+    expect(result.value).toEqual(15.75);
+    expect(result.unit).toEqual('minutes');
+    expect(result.notes).toEqual('Updated entry');
+    expect(result.updated_at).toBeInstanceOf(Date);
+  });
+
+  it('should save updated entry to database', async () => {
+    // Create test user and admin
+    const userResult = await db.insert(usersTable).values(testUser).returning().execute();
+    const adminResult = await db.insert(usersTable).values(testAdmin).returning().execute();
+    const userId = userResult[0].id;
+    const adminId = adminResult[0].id;
+
+    // Create competition
+    const competitionResult = await db.insert(competitionsTable)
+      .values({
+        ...testCompetition,
+        created_by: adminId,
+        assigned_to: null
+      })
+      .returning()
+      .execute();
+    const competitionId = competitionResult[0].id;
+
+    // Create entry
+    const entryResult = await db.insert(competitionEntriesTable)
+      .values({
+        competition_id: competitionId,
+        user_id: userId,
+        value: '10.5',
+        unit: 'seconds',
+        notes: 'Initial entry',
+        entered_by: userId
+      })
+      .returning()
+      .execute();
+    const entryId = entryResult[0].id;
+
+    const updateInput: UpdateCompetitionEntryInput = {
+      id: entryId,
+      value: 20.25
+    };
+
+    await updateCompetitionEntry(updateInput, adminId, 'administrator');
+
+    // Verify in database
+    const entries = await db.select()
+      .from(competitionEntriesTable)
+      .where(eq(competitionEntriesTable.id, entryId))
+      .execute();
+
+    expect(entries).toHaveLength(1);
+    expect(parseFloat(entries[0].value)).toEqual(20.25);
+    expect(entries[0].unit).toEqual('seconds'); // Should remain unchanged
+    expect(entries[0].notes).toEqual('Initial entry'); // Should remain unchanged
+  });
+
+  it('should allow user to update their own entry in user_entry competition', async () => {
+    // Create test user and admin
+    const userResult = await db.insert(usersTable).values(testUser).returning().execute();
+    const adminResult = await db.insert(usersTable).values(testAdmin).returning().execute();
+    const userId = userResult[0].id;
+    const adminId = adminResult[0].id;
+
+    // Create competition
+    const competitionResult = await db.insert(competitionsTable)
+      .values({
+        ...testCompetition,
+        created_by: adminId,
+        assigned_to: null
+      })
+      .returning()
+      .execute();
+    const competitionId = competitionResult[0].id;
+
+    // Create entry
+    const entryResult = await db.insert(competitionEntriesTable)
+      .values({
+        competition_id: competitionId,
+        user_id: userId,
+        value: '10.5',
+        unit: 'seconds',
+        notes: 'Initial entry',
+        entered_by: userId
+      })
+      .returning()
+      .execute();
+    const entryId = entryResult[0].id;
+
+    const updateInput: UpdateCompetitionEntryInput = {
+      id: entryId,
+      value: 12.5
+    };
+
+    const result = await updateCompetitionEntry(updateInput, userId, 'member');
+
+    expect(result.value).toEqual(12.5);
+  });
+
+  it('should allow staff to update entries for competitions they manage', async () => {
+    // Create test user and staff
+    const userResult = await db.insert(usersTable).values(testUser).returning().execute();
+    const staffResult = await db.insert(usersTable).values(testStaff).returning().execute();
+    const userId = userResult[0].id;
+    const staffId = staffResult[0].id;
+
+    // Create competition assigned to staff
+    const competitionResult = await db.insert(competitionsTable)
+      .values({
+        ...testCompetition,
+        created_by: staffId,
+        assigned_to: staffId
+      })
+      .returning()
+      .execute();
+    const competitionId = competitionResult[0].id;
+
+    // Create entry by user
+    const entryResult = await db.insert(competitionEntriesTable)
+      .values({
+        competition_id: competitionId,
+        user_id: userId,
+        value: '10.5',
+        unit: 'seconds',
+        notes: 'Initial entry',
+        entered_by: userId
+      })
+      .returning()
+      .execute();
+    const entryId = entryResult[0].id;
+
+    const updateInput: UpdateCompetitionEntryInput = {
+      id: entryId,
+      value: 15.0
+    };
+
+    const result = await updateCompetitionEntry(updateInput, staffId, 'staff');
+
+    expect(result.value).toEqual(15.0);
+  });
+
+  it('should prevent user from updating entry in staff_only competition', async () => {
+    // Create test user and admin
+    const userResult = await db.insert(usersTable).values(testUser).returning().execute();
+    const adminResult = await db.insert(usersTable).values(testAdmin).returning().execute();
+    const userId = userResult[0].id;
+    const adminId = adminResult[0].id;
+
+    // Create staff-only competition
+    const competitionResult = await db.insert(competitionsTable)
+      .values({
+        ...staffOnlyCompetition,
+        created_by: adminId,
+        assigned_to: null
+      })
+      .returning()
+      .execute();
+    const competitionId = competitionResult[0].id;
+
+    // Create entry
+    const entryResult = await db.insert(competitionEntriesTable)
+      .values({
+        competition_id: competitionId,
+        user_id: userId,
+        value: '10.5',
+        unit: 'reps',
+        notes: 'Initial entry',
+        entered_by: adminId
+      })
+      .returning()
+      .execute();
+    const entryId = entryResult[0].id;
+
+    const updateInput: UpdateCompetitionEntryInput = {
+      id: entryId,
+      value: 15.0
+    };
+
+    await expect(updateCompetitionEntry(updateInput, userId, 'member'))
       .rejects.toThrow(/insufficient permissions/i);
+  });
+
+  it('should prevent updates to entries in inactive competitions', async () => {
+    // Create test user and admin
+    const userResult = await db.insert(usersTable).values(testUser).returning().execute();
+    const adminResult = await db.insert(usersTable).values(testAdmin).returning().execute();
+    const userId = userResult[0].id;
+    const adminId = adminResult[0].id;
+
+    // Create inactive competition
+    const competitionResult = await db.insert(competitionsTable)
+      .values({
+        ...testCompetition,
+        status: 'completed',
+        created_by: adminId,
+        assigned_to: null
+      })
+      .returning()
+      .execute();
+    const competitionId = competitionResult[0].id;
+
+    // Create entry
+    const entryResult = await db.insert(competitionEntriesTable)
+      .values({
+        competition_id: competitionId,
+        user_id: userId,
+        value: '10.5',
+        unit: 'seconds',
+        notes: 'Initial entry',
+        entered_by: userId
+      })
+      .returning()
+      .execute();
+    const entryId = entryResult[0].id;
+
+    const updateInput: UpdateCompetitionEntryInput = {
+      id: entryId,
+      value: 15.0
+    };
+
+    await expect(updateCompetitionEntry(updateInput, adminId, 'administrator'))
+      .rejects.toThrow(/inactive competitions/i);
+  });
+
+  it('should create audit log entry', async () => {
+    // Create test user and admin
+    const userResult = await db.insert(usersTable).values(testUser).returning().execute();
+    const adminResult = await db.insert(usersTable).values(testAdmin).returning().execute();
+    const userId = userResult[0].id;
+    const adminId = adminResult[0].id;
+
+    // Create competition
+    const competitionResult = await db.insert(competitionsTable)
+      .values({
+        ...testCompetition,
+        created_by: adminId,
+        assigned_to: null
+      })
+      .returning()
+      .execute();
+    const competitionId = competitionResult[0].id;
+
+    // Create entry
+    const entryResult = await db.insert(competitionEntriesTable)
+      .values({
+        competition_id: competitionId,
+        user_id: userId,
+        value: '10.5',
+        unit: 'seconds',
+        notes: 'Initial entry',
+        entered_by: userId
+      })
+      .returning()
+      .execute();
+    const entryId = entryResult[0].id;
+
+    const updateInput: UpdateCompetitionEntryInput = {
+      id: entryId,
+      value: 15.0
+    };
+
+    await updateCompetitionEntry(updateInput, adminId, 'administrator');
+
+    // Check audit log
+    const auditLogs = await db.select()
+      .from(auditLogsTable)
+      .where(eq(auditLogsTable.resource_id, entryId))
+      .execute();
+
+    expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0].user_id).toEqual(adminId);
+    expect(auditLogs[0].action).toEqual('update');
+    expect(auditLogs[0].resource_type).toEqual('competition_entry');
+    expect(auditLogs[0].details).toContain('Test Competition');
+  });
+
+  it('should throw error for non-existent entry', async () => {
+    const adminResult = await db.insert(usersTable).values(testAdmin).returning().execute();
+    const adminId = adminResult[0].id;
+
+    const updateInput: UpdateCompetitionEntryInput = {
+      id: 999999,
+      value: 15.0
+    };
+
+    await expect(updateCompetitionEntry(updateInput, adminId, 'administrator'))
+      .rejects.toThrow(/not found/i);
   });
 });
